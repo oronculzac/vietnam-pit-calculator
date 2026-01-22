@@ -1,0 +1,768 @@
+Below is a **50-case regression test suite (JSON)** that references the same IDs from your starter pack:
+
+* `ruleset_id`: `VN_PIT_2026`
+* `tax_tables`: `VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026`, `VN_NONRESIDENT_EMPLOYMENT_FLAT_2026`
+* `decision_rules`: `VN_RESIDENCY_183_DAY_TEST`, `WITHHOLDING_10_PERCENT_NO_CONTRACT_OR_LT_3_MONTHS_PAYMENT_GE_2M`
+* `exemptions`: `OT_NIGHT_PREMIUM_ONLY_EXEMPT`
+* `constants`: `FAMILY_DEDUCTION_TAXPAYER_MONTHLY`, `FAMILY_DEDUCTION_DEPENDENT_MONTHLY`
+
+**Rule assumptions used in expected values (explicit):**
+
+* **2026 family deductions**: 15.5m/month taxpayer; 6.2m/month per dependent. ([KPMG][1])
+* **Resident monthly progressive schedule (5/10/20/30/35% with bands 10/30/60/100m)** as per multiple 2025–2026 legal/firm summaries. ([Indochine Counsel][2])
+* **10% withholding** for resident individuals with **no contract or <3 months** when payment **≥ 2,000,000 VND per payment** (Circular 111, Art. 25(1)(i) in the English PDF excerpt). ([accaglobal.com][3])
+* **Overtime/night premium exemption**: only the portion above normal wages is exempt (Circular 111 English text). ([english.luatvietnam.vn][4])
+
+> Note: One source floating online lists different rates (e.g., 15%/25% in bracket 2/3). The suite below uses the **10%/20%** structure supported by multiple other 2025–2026 summaries. ([Indochine Counsel][2])
+
+---
+
+```json
+{
+  "suite_id": "VN_PIT_2026_REGRESSION_V1",
+  "ruleset_id": "VN_PIT_2026",
+  "currency": "VND",
+  "assumptions": {
+    "resident_assessable_income_monthly_vnd": "max(0, taxable_gross_income - insurance - FAMILY_DEDUCTION_TAXPAYER_MONTHLY - dependents*FAMILY_DEDUCTION_DEPENDENT_MONTHLY - donations)",
+    "resident_tax_table": "VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026",
+    "nonresident_tax_table": "VN_NONRESIDENT_EMPLOYMENT_FLAT_2026",
+    "overtime_exemption": "OT_NIGHT_PREMIUM_ONLY_EXEMPT (exempt = actual - normal; taxable OT included = normal)",
+    "withholding_rule": "WITHHOLDING_10_PERCENT_NO_CONTRACT_OR_LT_3_MONTHS_PAYMENT_GE_2M",
+    "residency_rule": "VN_RESIDENCY_183_DAY_TEST (minimal: 183-day presence tests only)"
+  },
+  "cases": [
+    {
+      "case_id": "R-001",
+      "title": "Residency: 200 days in tax year -> resident",
+      "category": "residency",
+      "inputs": {
+        "residency": { "days_present_in_vn_in_tax_year": 200, "days_present_in_vn_in_12_consecutive_months_from_first_entry": 200 }
+      },
+      "expected": { "residency_status": "resident" },
+      "exercised": { "decision_rules": ["VN_RESIDENCY_183_DAY_TEST"] }
+    },
+    {
+      "case_id": "R-002",
+      "title": "Residency: 170 days -> non-resident",
+      "category": "residency",
+      "inputs": {
+        "residency": { "days_present_in_vn_in_tax_year": 170, "days_present_in_vn_in_12_consecutive_months_from_first_entry": 170 }
+      },
+      "expected": { "residency_status": "non_resident" },
+      "exercised": { "decision_rules": ["VN_RESIDENCY_183_DAY_TEST"] }
+    },
+    {
+      "case_id": "R-003",
+      "title": "Residency: 120 days in tax year, but 183+ in rolling 12 months -> resident",
+      "category": "residency",
+      "inputs": {
+        "residency": { "days_present_in_vn_in_tax_year": 120, "days_present_in_vn_in_12_consecutive_months_from_first_entry": 185 }
+      },
+      "expected": { "residency_status": "resident" },
+      "exercised": { "decision_rules": ["VN_RESIDENCY_183_DAY_TEST"] }
+    },
+    {
+      "case_id": "R-004",
+      "title": "Residency: exactly 183 days -> resident",
+      "category": "residency",
+      "inputs": {
+        "residency": { "days_present_in_vn_in_tax_year": 183, "days_present_in_vn_in_12_consecutive_months_from_first_entry": 183 }
+      },
+      "expected": { "residency_status": "resident" },
+      "exercised": { "decision_rules": ["VN_RESIDENCY_183_DAY_TEST"] }
+    },
+    {
+      "case_id": "R-005",
+      "title": "Residency: 182 days -> non-resident (minimal rule set; lease/permanent residence not evaluated)",
+      "category": "residency",
+      "inputs": {
+        "residency": { "days_present_in_vn_in_tax_year": 182, "days_present_in_vn_in_12_consecutive_months_from_first_entry": 182 },
+        "housing": { "has_long_term_lease_ge_183_days": true, "has_permanent_residence_registration": false }
+      },
+      "expected": {
+        "residency_status": "non_resident",
+        "warnings": ["Housing/permanent residence criteria not implemented in minimal residency rule; expand in v2."]
+      },
+      "exercised": { "decision_rules": ["VN_RESIDENCY_183_DAY_TEST"] }
+    },
+    {
+      "case_id": "R-006",
+      "title": "Residency: frequent border trips; input total days 190 -> resident",
+      "category": "residency",
+      "inputs": {
+        "residency": { "days_present_in_vn_in_tax_year": 190, "days_present_in_vn_in_12_consecutive_months_from_first_entry": 190 }
+      },
+      "expected": { "residency_status": "resident" },
+      "exercised": { "decision_rules": ["VN_RESIDENCY_183_DAY_TEST"] }
+    },
+    {
+      "case_id": "R-007",
+      "title": "Residency: late-year entry; 12-month window hits 183 -> resident",
+      "category": "residency",
+      "inputs": {
+        "residency": { "days_present_in_vn_in_tax_year": 95, "days_present_in_vn_in_12_consecutive_months_from_first_entry": 183 }
+      },
+      "expected": { "residency_status": "resident" },
+      "exercised": { "decision_rules": ["VN_RESIDENCY_183_DAY_TEST"] }
+    },
+    {
+      "case_id": "R-008",
+      "title": "Residency: reaches 183 in October (flag: mid-year flip impacts finalization logic later)",
+      "category": "residency",
+      "inputs": {
+        "residency": { "days_present_in_vn_in_tax_year": 183, "days_present_in_vn_in_12_consecutive_months_from_first_entry": 183 },
+        "timing": { "residency_reached_month": 10 }
+      },
+      "expected": {
+        "residency_status": "resident",
+        "notes": "MVP can classify; later versions should model withholding vs year-end finalization for mid-year flips."
+      },
+      "exercised": { "decision_rules": ["VN_RESIDENCY_183_DAY_TEST"] }
+    },
+    {
+      "case_id": "R-009",
+      "title": "Residency: permanent residence registered but low presence (minimal rule -> non-resident)",
+      "category": "residency",
+      "inputs": {
+        "residency": { "days_present_in_vn_in_tax_year": 40, "days_present_in_vn_in_12_consecutive_months_from_first_entry": 40 },
+        "housing": { "has_permanent_residence_registration": true }
+      },
+      "expected": {
+        "residency_status": "non_resident",
+        "warnings": ["Permanent residence criterion not implemented in minimal rule; expand in v2."]
+      },
+      "exercised": { "decision_rules": ["VN_RESIDENCY_183_DAY_TEST"] }
+    },
+    {
+      "case_id": "R-010",
+      "title": "Residency: missing travel data -> unknown (UI should request more info)",
+      "category": "residency",
+      "inputs": {
+        "residency": { "days_present_in_vn_in_tax_year": null, "days_present_in_vn_in_12_consecutive_months_from_first_entry": null }
+      },
+      "expected": {
+        "residency_status": "unknown",
+        "errors": ["days_present_in_vn_in_tax_year required OR days_present_in_vn_in_12_consecutive_months_from_first_entry required"]
+      },
+      "exercised": { "decision_rules": ["VN_RESIDENCY_183_DAY_TEST"] }
+    },
+
+    {
+      "case_id": "T-011",
+      "title": "Resident PIT: assessable 9m -> 450k",
+      "category": "resident_tax_table",
+      "inputs": {
+        "residency_status": "resident",
+        "income": { "salary_vnd": 24500000, "bonus_vnd": 0, "taxable_allowances_vnd": 0, "overtime": null },
+        "deductions": { "dependents_count": 0, "insurance_vnd": 0, "donations_vnd": 0 }
+      },
+      "expected": {
+        "assessable_income_vnd": 9000000,
+        "pit_vnd": 450000,
+        "pit_breakdown": [{ "band": "0-10m", "taxed_amount_vnd": 9000000, "rate": 0.05, "tax_vnd": 450000 }]
+      },
+      "exercised": {
+        "tax_tables": ["VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026"],
+        "constants": ["FAMILY_DEDUCTION_TAXPAYER_MONTHLY"]
+      }
+    },
+    {
+      "case_id": "T-012",
+      "title": "Resident PIT: assessable 10m boundary -> 500k",
+      "category": "resident_tax_table",
+      "inputs": {
+        "residency_status": "resident",
+        "income": { "salary_vnd": 25500000, "bonus_vnd": 0, "taxable_allowances_vnd": 0, "overtime": null },
+        "deductions": { "dependents_count": 0, "insurance_vnd": 0, "donations_vnd": 0 }
+      },
+      "expected": {
+        "assessable_income_vnd": 10000000,
+        "pit_vnd": 500000,
+        "pit_breakdown": [{ "band": "0-10m", "taxed_amount_vnd": 10000000, "rate": 0.05, "tax_vnd": 500000 }]
+      },
+      "exercised": {
+        "tax_tables": ["VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026"],
+        "constants": ["FAMILY_DEDUCTION_TAXPAYER_MONTHLY"]
+      }
+    },
+    {
+      "case_id": "T-013",
+      "title": "Resident PIT: assessable 10.1m -> 510k",
+      "category": "resident_tax_table",
+      "inputs": {
+        "residency_status": "resident",
+        "income": { "salary_vnd": 25600000, "bonus_vnd": 0, "taxable_allowances_vnd": 0, "overtime": null },
+        "deductions": { "dependents_count": 0, "insurance_vnd": 0, "donations_vnd": 0 }
+      },
+      "expected": {
+        "assessable_income_vnd": 10100000,
+        "pit_vnd": 510000,
+        "pit_breakdown": [
+          { "band": "0-10m", "taxed_amount_vnd": 10000000, "rate": 0.05, "tax_vnd": 500000 },
+          { "band": "10-30m", "taxed_amount_vnd": 100000, "rate": 0.10, "tax_vnd": 10000 }
+        ]
+      },
+      "exercised": {
+        "tax_tables": ["VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026"],
+        "constants": ["FAMILY_DEDUCTION_TAXPAYER_MONTHLY"]
+      }
+    },
+    {
+      "case_id": "T-014",
+      "title": "Resident PIT: assessable 30m boundary -> 2.5m",
+      "category": "resident_tax_table",
+      "inputs": {
+        "residency_status": "resident",
+        "income": { "salary_vnd": 45500000, "bonus_vnd": 0, "taxable_allowances_vnd": 0 },
+        "deductions": { "dependents_count": 0, "insurance_vnd": 0, "donations_vnd": 0 }
+      },
+      "expected": {
+        "assessable_income_vnd": 30000000,
+        "pit_vnd": 2500000,
+        "pit_breakdown": [
+          { "band": "0-10m", "taxed_amount_vnd": 10000000, "rate": 0.05, "tax_vnd": 500000 },
+          { "band": "10-30m", "taxed_amount_vnd": 20000000, "rate": 0.10, "tax_vnd": 2000000 }
+        ]
+      },
+      "exercised": { "tax_tables": ["VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026"], "constants": ["FAMILY_DEDUCTION_TAXPAYER_MONTHLY"] }
+    },
+    {
+      "case_id": "T-015",
+      "title": "Resident PIT: assessable 30.1m -> 2.52m",
+      "category": "resident_tax_table",
+      "inputs": {
+        "residency_status": "resident",
+        "income": { "salary_vnd": 45600000, "bonus_vnd": 0, "taxable_allowances_vnd": 0 },
+        "deductions": { "dependents_count": 0, "insurance_vnd": 0, "donations_vnd": 0 }
+      },
+      "expected": {
+        "assessable_income_vnd": 30100000,
+        "pit_vnd": 2520000,
+        "pit_breakdown": [
+          { "band": "0-10m", "taxed_amount_vnd": 10000000, "rate": 0.05, "tax_vnd": 500000 },
+          { "band": "10-30m", "taxed_amount_vnd": 20000000, "rate": 0.10, "tax_vnd": 2000000 },
+          { "band": "30-60m", "taxed_amount_vnd": 100000, "rate": 0.20, "tax_vnd": 20000 }
+        ]
+      },
+      "exercised": { "tax_tables": ["VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026"], "constants": ["FAMILY_DEDUCTION_TAXPAYER_MONTHLY"] }
+    },
+    {
+      "case_id": "T-016",
+      "title": "Resident PIT: assessable 60m boundary -> 8.5m",
+      "category": "resident_tax_table",
+      "inputs": {
+        "residency_status": "resident",
+        "income": { "salary_vnd": 75500000, "bonus_vnd": 0, "taxable_allowances_vnd": 0 },
+        "deductions": { "dependents_count": 0, "insurance_vnd": 0, "donations_vnd": 0 }
+      },
+      "expected": {
+        "assessable_income_vnd": 60000000,
+        "pit_vnd": 8500000,
+        "pit_breakdown": [
+          { "band": "0-10m", "taxed_amount_vnd": 10000000, "rate": 0.05, "tax_vnd": 500000 },
+          { "band": "10-30m", "taxed_amount_vnd": 20000000, "rate": 0.10, "tax_vnd": 2000000 },
+          { "band": "30-60m", "taxed_amount_vnd": 30000000, "rate": 0.20, "tax_vnd": 6000000 }
+        ]
+      },
+      "exercised": { "tax_tables": ["VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026"], "constants": ["FAMILY_DEDUCTION_TAXPAYER_MONTHLY"] }
+    },
+    {
+      "case_id": "T-017",
+      "title": "Resident PIT: assessable 100m boundary -> 20.5m",
+      "category": "resident_tax_table",
+      "inputs": {
+        "residency_status": "resident",
+        "income": { "salary_vnd": 115500000, "bonus_vnd": 0, "taxable_allowances_vnd": 0 },
+        "deductions": { "dependents_count": 0, "insurance_vnd": 0, "donations_vnd": 0 }
+      },
+      "expected": {
+        "assessable_income_vnd": 100000000,
+        "pit_vnd": 20500000,
+        "pit_breakdown": [
+          { "band": "0-10m", "taxed_amount_vnd": 10000000, "rate": 0.05, "tax_vnd": 500000 },
+          { "band": "10-30m", "taxed_amount_vnd": 20000000, "rate": 0.10, "tax_vnd": 2000000 },
+          { "band": "30-60m", "taxed_amount_vnd": 30000000, "rate": 0.20, "tax_vnd": 6000000 },
+          { "band": "60-100m", "taxed_amount_vnd": 40000000, "rate": 0.30, "tax_vnd": 12000000 }
+        ]
+      },
+      "exercised": { "tax_tables": ["VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026"], "constants": ["FAMILY_DEDUCTION_TAXPAYER_MONTHLY"] }
+    },
+    {
+      "case_id": "T-018",
+      "title": "Resident PIT: assessable 120m -> 27.5m",
+      "category": "resident_tax_table",
+      "inputs": {
+        "residency_status": "resident",
+        "income": { "salary_vnd": 135500000, "bonus_vnd": 0, "taxable_allowances_vnd": 0 },
+        "deductions": { "dependents_count": 0, "insurance_vnd": 0, "donations_vnd": 0 }
+      },
+      "expected": {
+        "assessable_income_vnd": 120000000,
+        "pit_vnd": 27500000,
+        "pit_breakdown": [
+          { "band": "0-10m", "taxed_amount_vnd": 10000000, "rate": 0.05, "tax_vnd": 500000 },
+          { "band": "10-30m", "taxed_amount_vnd": 20000000, "rate": 0.10, "tax_vnd": 2000000 },
+          { "band": "30-60m", "taxed_amount_vnd": 30000000, "rate": 0.20, "tax_vnd": 6000000 },
+          { "band": "60-100m", "taxed_amount_vnd": 40000000, "rate": 0.30, "tax_vnd": 12000000 },
+          { "band": "100m+", "taxed_amount_vnd": 20000000, "rate": 0.35, "tax_vnd": 7000000 }
+        ]
+      },
+      "exercised": { "tax_tables": ["VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026"], "constants": ["FAMILY_DEDUCTION_TAXPAYER_MONTHLY"] }
+    },
+    {
+      "case_id": "T-019",
+      "title": "Resident PIT: bonus month pushes assessable to 60m -> 8.5m",
+      "category": "resident_tax_table",
+      "inputs": {
+        "residency_status": "resident",
+        "income": { "salary_vnd": 55500000, "bonus_vnd": 20000000, "taxable_allowances_vnd": 0 },
+        "deductions": { "dependents_count": 0, "insurance_vnd": 0, "donations_vnd": 0 }
+      },
+      "expected": {
+        "assessable_income_vnd": 60000000,
+        "pit_vnd": 8500000
+      },
+      "exercised": { "tax_tables": ["VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026"], "constants": ["FAMILY_DEDUCTION_TAXPAYER_MONTHLY"] }
+    },
+    {
+      "case_id": "T-020",
+      "title": "Resident PIT: gross below deductions -> assessable 0 -> PIT 0",
+      "category": "resident_tax_table",
+      "inputs": {
+        "residency_status": "resident",
+        "income": { "salary_vnd": 10000000, "bonus_vnd": 0, "taxable_allowances_vnd": 0 },
+        "deductions": { "dependents_count": 0, "insurance_vnd": 0, "donations_vnd": 0 }
+      },
+      "expected": { "assessable_income_vnd": 0, "pit_vnd": 0 },
+      "exercised": { "tax_tables": ["VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026"], "constants": ["FAMILY_DEDUCTION_TAXPAYER_MONTHLY"] }
+    },
+
+    {
+      "case_id": "D-021",
+      "title": "Deductions: no dependents, assessable 25m -> PIT 2.0m",
+      "category": "deductions",
+      "inputs": {
+        "residency_status": "resident",
+        "income": { "salary_vnd": 40500000, "bonus_vnd": 0, "taxable_allowances_vnd": 0 },
+        "deductions": { "dependents_count": 0, "insurance_vnd": 0, "donations_vnd": 0 }
+      },
+      "expected": { "assessable_income_vnd": 25000000, "pit_vnd": 2000000 },
+      "exercised": { "constants": ["FAMILY_DEDUCTION_TAXPAYER_MONTHLY"], "tax_tables": ["VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026"] }
+    },
+    {
+      "case_id": "D-022",
+      "title": "Deductions: 1 dependent, same assessable 25m -> PIT 2.0m",
+      "category": "deductions",
+      "inputs": {
+        "residency_status": "resident",
+        "income": { "salary_vnd": 46700000, "bonus_vnd": 0, "taxable_allowances_vnd": 0 },
+        "deductions": { "dependents_count": 1, "insurance_vnd": 0, "donations_vnd": 0 }
+      },
+      "expected": { "assessable_income_vnd": 25000000, "pit_vnd": 2000000 },
+      "exercised": { "constants": ["FAMILY_DEDUCTION_TAXPAYER_MONTHLY", "FAMILY_DEDUCTION_DEPENDENT_MONTHLY"], "tax_tables": ["VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026"] }
+    },
+    {
+      "case_id": "D-023",
+      "title": "Deductions: 2 dependents, same assessable 25m -> PIT 2.0m",
+      "category": "deductions",
+      "inputs": {
+        "residency_status": "resident",
+        "income": { "salary_vnd": 52900000, "bonus_vnd": 0, "taxable_allowances_vnd": 0 },
+        "deductions": { "dependents_count": 2, "insurance_vnd": 0, "donations_vnd": 0 }
+      },
+      "expected": { "assessable_income_vnd": 25000000, "pit_vnd": 2000000 },
+      "exercised": { "constants": ["FAMILY_DEDUCTION_TAXPAYER_MONTHLY", "FAMILY_DEDUCTION_DEPENDENT_MONTHLY"], "tax_tables": ["VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026"] }
+    },
+    {
+      "case_id": "D-024",
+      "title": "Deductions: dependents effective mid-year (MVP assumes count applies for this month)",
+      "category": "deductions",
+      "inputs": {
+        "residency_status": "resident",
+        "timing": { "dependents_effective_from": "2026-07-01" },
+        "income": { "salary_vnd": 52900000 },
+        "deductions": { "dependents_count": 2, "insurance_vnd": 0, "donations_vnd": 0 }
+      },
+      "expected": {
+        "assessable_income_vnd": 25000000,
+        "pit_vnd": 2000000,
+        "notes": "Later: model pro-rating/eligibility windows and required dependent registration evidence."
+      },
+      "exercised": { "constants": ["FAMILY_DEDUCTION_TAXPAYER_MONTHLY", "FAMILY_DEDUCTION_DEPENDENT_MONTHLY"], "tax_tables": ["VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026"] }
+    },
+    {
+      "case_id": "D-025",
+      "title": "Deductions: insurance reduces assessable (gross 50m, insurance 5m) -> assessable 29.5m -> PIT 2.45m",
+      "category": "deductions",
+      "inputs": {
+        "residency_status": "resident",
+        "income": { "salary_vnd": 50000000 },
+        "deductions": { "dependents_count": 0, "insurance_vnd": 5000000, "donations_vnd": 0 }
+      },
+      "expected": { "assessable_income_vnd": 29500000, "pit_vnd": 2450000 },
+      "exercised": { "constants": ["FAMILY_DEDUCTION_TAXPAYER_MONTHLY"], "tax_tables": ["VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026"] }
+    },
+    {
+      "case_id": "D-026",
+      "title": "Deductions: donations reduce assessable (gross 60m, donations 2m) -> assessable 42.5m -> PIT 5.0m",
+      "category": "deductions",
+      "inputs": {
+        "residency_status": "resident",
+        "income": { "salary_vnd": 60000000 },
+        "deductions": { "dependents_count": 0, "insurance_vnd": 0, "donations_vnd": 2000000 }
+      },
+      "expected": { "assessable_income_vnd": 42500000, "pit_vnd": 5000000 },
+      "exercised": { "constants": ["FAMILY_DEDUCTION_TAXPAYER_MONTHLY"], "tax_tables": ["VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026"] }
+    },
+    {
+      "case_id": "D-027",
+      "title": "Deductions: deductions exceed income -> PIT 0",
+      "category": "deductions",
+      "inputs": {
+        "residency_status": "resident",
+        "income": { "salary_vnd": 20000000 },
+        "deductions": { "dependents_count": 1, "insurance_vnd": 6000000, "donations_vnd": 0 }
+      },
+      "expected": { "assessable_income_vnd": 0, "pit_vnd": 0 },
+      "exercised": { "constants": ["FAMILY_DEDUCTION_TAXPAYER_MONTHLY", "FAMILY_DEDUCTION_DEPENDENT_MONTHLY"], "tax_tables": ["VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026"] }
+    },
+    {
+      "case_id": "D-028",
+      "title": "Outdated assumption guardrail: gross 25.5m should yield assessable 10m (NOT 14.5m) -> PIT 500k",
+      "category": "deductions",
+      "inputs": {
+        "residency_status": "resident",
+        "income": { "salary_vnd": 25500000 },
+        "deductions": { "dependents_count": 0, "insurance_vnd": 0, "donations_vnd": 0 }
+      },
+      "expected": {
+        "assessable_income_vnd": 10000000,
+        "pit_vnd": 500000,
+        "notes": "This catches apps that still use pre-2026 11m deduction."
+      },
+      "exercised": { "constants": ["FAMILY_DEDUCTION_TAXPAYER_MONTHLY"], "tax_tables": ["VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026"] }
+    },
+    {
+      "case_id": "D-029",
+      "title": "Annualization consistency check: monthly PIT 2.0m -> annual 24.0m",
+      "category": "deductions",
+      "inputs": {
+        "residency_status": "resident",
+        "income": { "salary_vnd": 40500000 },
+        "deductions": { "dependents_count": 0, "insurance_vnd": 0, "donations_vnd": 0 },
+        "annualize": { "months": 12 }
+      },
+      "expected": { "assessable_income_vnd": 25000000, "pit_vnd": 2000000, "pit_annual_vnd": 24000000 },
+      "exercised": { "tax_tables": ["VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026"], "constants": ["FAMILY_DEDUCTION_TAXPAYER_MONTHLY"] }
+    },
+    {
+      "case_id": "D-030",
+      "title": "Multi-employer resident: 30m + 20m gross -> assessable 34.5m -> PIT 3.4m",
+      "category": "deductions",
+      "inputs": {
+        "residency_status": "resident",
+        "income": {
+          "employers": [
+            { "name": "A", "salary_vnd": 30000000 },
+            { "name": "B", "salary_vnd": 20000000 }
+          ]
+        },
+        "deductions": { "dependents_count": 0, "insurance_vnd": 0, "donations_vnd": 0 }
+      },
+      "expected": { "assessable_income_vnd": 34500000, "pit_vnd": 3400000 },
+      "exercised": { "tax_tables": ["VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026"], "constants": ["FAMILY_DEDUCTION_TAXPAYER_MONTHLY"] }
+    },
+
+    {
+      "case_id": "N-031",
+      "title": "Non-resident flat: taxable 50m -> PIT 10m",
+      "category": "nonresident",
+      "inputs": { "residency_status": "non_resident", "income": { "taxable_gross_income_vnd": 50000000 } },
+      "expected": { "pit_vnd": 10000000 },
+      "exercised": { "tax_tables": ["VN_NONRESIDENT_EMPLOYMENT_FLAT_2026"] }
+    },
+    {
+      "case_id": "N-032",
+      "title": "Non-resident flat: taxable 60m -> PIT 12m",
+      "category": "nonresident",
+      "inputs": { "residency_status": "non_resident", "income": { "taxable_gross_income_vnd": 60000000 } },
+      "expected": { "pit_vnd": 12000000 },
+      "exercised": { "tax_tables": ["VN_NONRESIDENT_EMPLOYMENT_FLAT_2026"] }
+    },
+    {
+      "case_id": "N-033",
+      "title": "Non-resident: paid offshore for VN work (allocation needed) -> cannot compute PIT in MVP",
+      "category": "nonresident",
+      "inputs": {
+        "residency_status": "non_resident",
+        "income": { "global_salary_vnd": 100000000, "vn_sourced_income_vnd": null },
+        "residency": { "days_present_in_vn_in_tax_year": 182 }
+      },
+      "expected": {
+        "pit_vnd": null,
+        "warnings": ["VN-sourced income allocation required; provide VN-sourced portion or add proration method in v2."]
+      },
+      "exercised": { "tax_tables": ["VN_NONRESIDENT_EMPLOYMENT_FLAT_2026"] }
+    },
+    {
+      "case_id": "N-034",
+      "title": "Non-resident: cannot separate VN income -> proration input produces VN-sourced estimate (v2 feature stub)",
+      "category": "nonresident",
+      "inputs": {
+        "residency_status": "non_resident",
+        "allocation_method": "days_present_over_365",
+        "income": { "global_salary_annual_vnd": 1200000000, "other_vn_taxable_income_annual_vnd": 0 },
+        "residency": { "days_present_in_vn_in_tax_year": 90 }
+      },
+      "expected": {
+        "vn_sourced_income_annual_vnd": 295890411,
+        "pit_annual_vnd": 59178082,
+        "notes": "PIT computed as 20% * VN-sourced annual income (allocation stub)."
+      },
+      "exercised": { "tax_tables": ["VN_NONRESIDENT_EMPLOYMENT_FLAT_2026"] }
+    },
+    {
+      "case_id": "N-035",
+      "title": "Non-resident with overtime premium exemption applied: taxable 39m -> PIT 7.8m",
+      "category": "nonresident",
+      "inputs": {
+        "residency_status": "non_resident",
+        "income": {
+          "salary_base_vnd": 37000000,
+          "overtime": { "actual_overtime_pay_vnd": 3000000, "normal_pay_for_same_hours_vnd": 2000000 }
+        }
+      },
+      "expected": {
+        "taxable_gross_income_vnd": 39000000,
+        "pit_vnd": 7800000,
+        "notes": "Overtime premium exempt = 1m; taxable includes normal OT portion."
+      },
+      "exercised": { "tax_tables": ["VN_NONRESIDENT_EMPLOYMENT_FLAT_2026"], "exemptions": ["OT_NIGHT_PREMIUM_ONLY_EXEMPT"] }
+    },
+    {
+      "case_id": "N-036",
+      "title": "Non-resident: bonus paid after leaving VN (sourcing determination required) -> warning",
+      "category": "nonresident",
+      "inputs": {
+        "residency_status": "non_resident",
+        "income": { "taxable_gross_income_vnd": null, "bonus_vnd": 20000000 },
+        "sourcing": { "bonus_relates_to_vn_work": "unknown" }
+      },
+      "expected": {
+        "pit_vnd": null,
+        "warnings": ["Need sourcing of bonus (VN work vs non-VN) to determine taxable base."]
+      },
+      "exercised": { "tax_tables": ["VN_NONRESIDENT_EMPLOYMENT_FLAT_2026"] }
+    },
+    {
+      "case_id": "N-037",
+      "title": "Non-resident: short-term engagement still uses 20% flat on VN-sourced taxable 20m -> PIT 4m",
+      "category": "nonresident",
+      "inputs": { "residency_status": "non_resident", "income": { "taxable_gross_income_vnd": 20000000 } },
+      "expected": { "pit_vnd": 4000000 },
+      "exercised": { "tax_tables": ["VN_NONRESIDENT_EMPLOYMENT_FLAT_2026"] }
+    },
+    {
+      "case_id": "N-038",
+      "title": "Non-resident: dependents ignored (taxable 30m -> PIT 6m)",
+      "category": "nonresident",
+      "inputs": {
+        "residency_status": "non_resident",
+        "income": { "taxable_gross_income_vnd": 30000000 },
+        "deductions": { "dependents_count": 2 }
+      },
+      "expected": { "pit_vnd": 6000000, "notes": "Non-resident does not use family deductions in this simplified model." },
+      "exercised": { "tax_tables": ["VN_NONRESIDENT_EMPLOYMENT_FLAT_2026"] }
+    },
+
+    {
+      "case_id": "W-039",
+      "title": "Withholding: no contract, payment 1.9m -> no 10% withholding",
+      "category": "withholding",
+      "inputs": { "contract": { "has_labor_contract": false, "labor_contract_duration_months": 0 }, "payment_amount_vnd_per_time": 1900000 },
+      "expected": { "withhold_pit": false, "withholding_rate": 0, "withheld_amount_vnd": 0 },
+      "exercised": { "decision_rules": ["WITHHOLDING_10_PERCENT_NO_CONTRACT_OR_LT_3_MONTHS_PAYMENT_GE_2M"] }
+    },
+    {
+      "case_id": "W-040",
+      "title": "Withholding: no contract, payment 2.0m -> withhold 10% (200k)",
+      "category": "withholding",
+      "inputs": { "contract": { "has_labor_contract": false, "labor_contract_duration_months": 0 }, "payment_amount_vnd_per_time": 2000000 },
+      "expected": { "withhold_pit": true, "withholding_rate": 0.10, "withheld_amount_vnd": 200000 },
+      "exercised": { "decision_rules": ["WITHHOLDING_10_PERCENT_NO_CONTRACT_OR_LT_3_MONTHS_PAYMENT_GE_2M"] }
+    },
+    {
+      "case_id": "W-041",
+      "title": "Withholding: labor contract 2 months, payment 3.0m -> withhold 10% (300k)",
+      "category": "withholding",
+      "inputs": { "contract": { "has_labor_contract": true, "labor_contract_duration_months": 2 }, "payment_amount_vnd_per_time": 3000000 },
+      "expected": { "withhold_pit": true, "withholding_rate": 0.10, "withheld_amount_vnd": 300000 },
+      "exercised": { "decision_rules": ["WITHHOLDING_10_PERCENT_NO_CONTRACT_OR_LT_3_MONTHS_PAYMENT_GE_2M"] }
+    },
+    {
+      "case_id": "W-042",
+      "title": "Withholding: labor contract 2 months, lump sum 20m -> withhold 10% (2.0m)",
+      "category": "withholding",
+      "inputs": { "contract": { "has_labor_contract": true, "labor_contract_duration_months": 2 }, "payment_amount_vnd_per_time": 20000000 },
+      "expected": { "withhold_pit": true, "withholding_rate": 0.10, "withheld_amount_vnd": 2000000 },
+      "exercised": { "decision_rules": ["WITHHOLDING_10_PERCENT_NO_CONTRACT_OR_LT_3_MONTHS_PAYMENT_GE_2M"] }
+    },
+    {
+      "case_id": "W-043",
+      "title": "Withholding: two payments 1.5m each (per payment <2m) -> no withholding (MVP interpretation)",
+      "category": "withholding",
+      "inputs": {
+        "contract": { "has_labor_contract": false, "labor_contract_duration_months": 0 },
+        "payments": [{ "amount_vnd": 1500000 }, { "amount_vnd": 1500000 }]
+      },
+      "expected": {
+        "withhold_pit": false,
+        "withholding_rate": 0,
+        "withheld_amount_vnd": 0,
+        "notes": "Threshold treated per payment/time; confirm aggregation rules if any during legal deep-dive."
+      },
+      "exercised": { "decision_rules": ["WITHHOLDING_10_PERCENT_NO_CONTRACT_OR_LT_3_MONTHS_PAYMENT_GE_2M"] }
+    },
+    {
+      "case_id": "W-044",
+      "title": "Withholding: resident short-term payment 10m -> withhold 10%, may be finalized later (refund/extra due)",
+      "category": "withholding",
+      "inputs": {
+        "contract": { "has_labor_contract": true, "labor_contract_duration_months": 1 },
+        "payment_amount_vnd_per_time": 10000000,
+        "residency_status": "resident"
+      },
+      "expected": {
+        "withhold_pit": true,
+        "withholding_rate": 0.10,
+        "withheld_amount_vnd": 1000000,
+        "notes": "Later: connect withholding to annual finalization logic."
+      },
+      "exercised": { "decision_rules": ["WITHHOLDING_10_PERCENT_NO_CONTRACT_OR_LT_3_MONTHS_PAYMENT_GE_2M"] }
+    },
+    {
+      "case_id": "W-045",
+      "title": "Withholding: common teacher gig (no contract), payment 10m -> withhold 1m",
+      "category": "withholding",
+      "inputs": { "contract": { "has_labor_contract": false, "labor_contract_duration_months": 0 }, "payment_amount_vnd_per_time": 10000000 },
+      "expected": { "withhold_pit": true, "withholding_rate": 0.10, "withheld_amount_vnd": 1000000 },
+      "exercised": { "decision_rules": ["WITHHOLDING_10_PERCENT_NO_CONTRACT_OR_LT_3_MONTHS_PAYMENT_GE_2M"] }
+    },
+
+    {
+      "case_id": "E-046",
+      "title": "Overtime: exempt premium only (actual 1.5m, normal 1.0m) affects resident PIT -> PIT 1.05m",
+      "category": "exemptions",
+      "inputs": {
+        "residency_status": "resident",
+        "income": {
+          "salary_base_vnd": 30000000,
+          "overtime": { "actual_overtime_pay_vnd": 1500000, "normal_pay_for_same_hours_vnd": 1000000 }
+        },
+        "deductions": { "dependents_count": 0, "insurance_vnd": 0, "donations_vnd": 0 }
+      },
+      "expected": {
+        "taxable_gross_income_vnd": 31000000,
+        "assessable_income_vnd": 15500000,
+        "pit_vnd": 1050000,
+        "notes": "OT premium exempt = 0.5m; taxable OT included = 1.0m."
+      },
+      "exercised": {
+        "exemptions": ["OT_NIGHT_PREMIUM_ONLY_EXEMPT"],
+        "constants": ["FAMILY_DEDUCTION_TAXPAYER_MONTHLY"],
+        "tax_tables": ["VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026"]
+      }
+    },
+    {
+      "case_id": "E-047",
+      "title": "Night shift: exempt premium only (actual 2.0m, normal 1.2m) -> resident PIT recalculates",
+      "category": "exemptions",
+      "inputs": {
+        "residency_status": "resident",
+        "income": {
+          "salary_base_vnd": 28000000,
+          "night_shift": { "actual_night_pay_vnd": 2000000, "normal_pay_for_same_hours_vnd": 1200000 }
+        },
+        "deductions": { "dependents_count": 0, "insurance_vnd": 0, "donations_vnd": 0 }
+      },
+      "expected": {
+        "taxable_gross_income_vnd": 29200000,
+        "assessable_income_vnd": 13700000,
+        "pit_vnd": 870000,
+        "notes": "Night premium exempt = 0.8m; taxable night portion included = 1.2m."
+      },
+      "exercised": {
+        "exemptions": ["OT_NIGHT_PREMIUM_ONLY_EXEMPT"],
+        "constants": ["FAMILY_DEDUCTION_TAXPAYER_MONTHLY"],
+        "tax_tables": ["VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026"]
+      }
+    },
+    {
+      "case_id": "E-048",
+      "title": "Overtime: missing employer documentation -> compute but warn",
+      "category": "exemptions",
+      "inputs": {
+        "residency_status": "resident",
+        "income": {
+          "salary_base_vnd": 30000000,
+          "overtime": { "actual_overtime_pay_vnd": 1500000, "normal_pay_for_same_hours_vnd": 1000000, "has_supporting_table": false }
+        },
+        "deductions": { "dependents_count": 0, "insurance_vnd": 0, "donations_vnd": 0 }
+      },
+      "expected": {
+        "assessable_income_vnd": 15500000,
+        "pit_vnd": 1050000,
+        "warnings": ["Overtime exemption typically requires supporting breakdown (hours/rates); verify payroll evidence."]
+      },
+      "exercised": { "exemptions": ["OT_NIGHT_PREMIUM_ONLY_EXEMPT"], "tax_tables": ["VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026"] }
+    },
+    {
+      "case_id": "E-049",
+      "title": "Guardrail: overtime not fully exempt (only premium exempt) -> taxable includes normal OT",
+      "category": "exemptions",
+      "inputs": {
+        "residency_status": "resident",
+        "income": {
+          "salary_base_vnd": 25000000,
+          "overtime": { "actual_overtime_pay_vnd": 5000000, "normal_pay_for_same_hours_vnd": 3000000 }
+        },
+        "deductions": { "dependents_count": 0, "insurance_vnd": 0, "donations_vnd": 0 }
+      },
+      "expected": {
+        "taxable_gross_income_vnd": 28000000,
+        "assessable_income_vnd": 12500000,
+        "pit_vnd": 750000,
+        "notes": "Premium exempt = 2.0m; taxable OT included = 3.0m."
+      },
+      "exercised": { "exemptions": ["OT_NIGHT_PREMIUM_ONLY_EXEMPT"], "tax_tables": ["VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026"] }
+    },
+    {
+      "case_id": "E-050",
+      "title": "Mixed allowances: taxable vs exempt bucket separation (MVP requires user classification)",
+      "category": "exemptions",
+      "inputs": {
+        "residency_status": "resident",
+        "income": {
+          "salary_vnd": 40000000,
+          "taxable_allowances_vnd": 3000000,
+          "exempt_allowances_vnd": 2000000
+        },
+        "deductions": { "dependents_count": 0, "insurance_vnd": 0, "donations_vnd": 0 }
+      },
+      "expected": {
+        "taxable_gross_income_vnd": 43000000,
+        "assessable_income_vnd": 27500000,
+        "pit_vnd": 2250000,
+        "notes": "Exempt allowances excluded from taxable gross; later: add allowance classifier library."
+      },
+      "exercised": { "tax_tables": ["VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026"], "constants": ["FAMILY_DEDUCTION_TAXPAYER_MONTHLY"] }
+    }
+  ]
+}
+```
+
+
+[1]: https://kpmg.com/xx/en/our-insights/gms-flash-alert/flash-alert-2025-237.html?utm_source=chatgpt.com "Vietnam – Personal Income Tax Relief Increased for ..."
+[2]: https://indochinecounsel.com/special-alert-key-highlights-of-the-new-personal-income-tax-law?utm_source=chatgpt.com "Key Highlights of the New Personal Income Tax Law"
+[3]: https://www.accaglobal.com/content/dam/acca/global/PDF-students/acca/f6/examdocs/vnm-circular-111-2013-circular-on-personal-income-tax.pdf?utm_source=chatgpt.com "No. 111/2013/TT-BT"
+[4]: https://english.luatvietnam.vn/circular-no-111-2013-tt-btc-of-august-15-2013-guiding-the-law-on-personal-income-tax-the-law-amending-and-supplementing-a-number-of-articles-of-th-80846-doc1.html?utm_source=chatgpt.com "Circular 111/2013/TT-BTC of Ministry of Finance date ..."
