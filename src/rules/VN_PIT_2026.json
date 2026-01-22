@@ -1,0 +1,355 @@
+{
+    "rulesets": [
+        {
+            "ruleset_id": "VN_PIT_2026",
+            "jurisdiction": "VN",
+            "label": "Vietnam PIT (2026 tax period)",
+            "effective_from": "2026-01-01",
+            "effective_to": null,
+            "notes": "New PIT law passed Dec 2025; effective in 2026 with salary/wage provisions applied from Jan 1, 2026 (per major firm summaries).",
+            "source_refs": [
+                {
+                    "title": "Baker McKenzie client alert (new PIT law passed Dec 2025; takes effect in 2026 with certain provisions)",
+                    "ref": "turn0search12",
+                    "url": "https://www.bakermckenzie.com/-/media/files/insight/publications/2026/01/vietnamtax-administration-pit-and-vat-laws.pdf"
+                },
+                {
+                    "title": "Kaizen CPA summary (law effective 1 July 2026; salary/wage provisions from 1 Jan 2026; 5 brackets)",
+                    "ref": "turn0search33"
+                }
+            ]
+        }
+    ],
+    "constants": [
+        {
+            "key": "FAMILY_DEDUCTION_TAXPAYER_MONTHLY",
+            "value": 15500000,
+            "unit": "VND",
+            "effective_from": "2026-01-01",
+            "effective_to": null,
+            "notes": "Family circumstance-based deduction for taxpayer.",
+            "source_refs": [
+                {
+                    "title": "Resolution 110/2025/UBTVQH15 (Article 1 & Effect)",
+                    "ref": "turn0search11",
+                    "url": "https://english.luatvietnam.vn/resolution-no-110-2025-ubtvqh15-dated-october-17-2025-of-the-national-assembly-standing-committee-on-adjustment-of-the-family-circumstance-based-ded-418037-doc1.html"
+                },
+                {
+                    "title": "KPMG flash alert (effective 1 Jan 2026)",
+                    "ref": "turn0search7"
+                }
+            ]
+        },
+        {
+            "key": "FAMILY_DEDUCTION_DEPENDENT_MONTHLY",
+            "value": 6200000,
+            "unit": "VND",
+            "effective_from": "2026-01-01",
+            "effective_to": null,
+            "notes": "Family circumstance-based deduction per dependent.",
+            "source_refs": [
+                {
+                    "title": "Resolution 110/2025/UBTVQH15 (Article 1 & Effect)",
+                    "ref": "turn0search11",
+                    "url": "https://english.luatvietnam.vn/resolution-no-110-2025-ubtvqh15-dated-october-17-2025-of-the-national-assembly-standing-committee-on-adjustment-of-the-family-circumstance-based-ded-418037-doc1.html"
+                },
+                {
+                    "title": "KPMG flash alert (effective 1 Jan 2026)",
+                    "ref": "turn0search7"
+                }
+            ]
+        },
+        {
+            "key": "WITHHOLDING_THRESHOLD",
+            "value": 2000000,
+            "unit": "VND",
+            "effective_from": "2013-08-15",
+            "effective_to": null,
+            "notes": "Minimum payment amount that triggers 10% withholding for no-contract/short-term payments.",
+            "source_refs": [
+                {
+                    "title": "Circular 111/2013/TT-BTC Art. 25 point 1.i",
+                    "ref": "turn0search24",
+                    "url": "https://www.accaglobal.com/content/dam/acca/global/PDF-students/acca/f6/examdocs/vnm-circular-111-2013-circular-on-personal-income-tax.pdf"
+                }
+            ]
+        },
+        {
+            "key": "WITHHOLDING_RATE",
+            "value": 0.10,
+            "unit": "percent",
+            "effective_from": "2013-08-15",
+            "effective_to": null,
+            "notes": "Withholding rate for payments ≥2M VND to individuals without labor contract or with contract <3 months.",
+            "source_refs": [
+                {
+                    "title": "Circular 111/2013/TT-BTC Art. 25 point 1.i",
+                    "ref": "turn0search24"
+                }
+            ]
+        },
+        {
+            "key": "RESIDENCY_DAYS_THRESHOLD",
+            "value": 183,
+            "unit": "days",
+            "effective_from": "2007-11-21",
+            "effective_to": null,
+            "notes": "Days present in Vietnam required for tax residency.",
+            "source_refs": [
+                {
+                    "title": "Law on Personal Income Tax (residency criteria)",
+                    "ref": "turn0search26"
+                }
+            ]
+        },
+        {
+            "key": "SHORT_TERM_CONTRACT_THRESHOLD_MONTHS",
+            "value": 3,
+            "unit": "months",
+            "effective_from": "2013-08-15",
+            "effective_to": null,
+            "notes": "Contracts under this duration trigger 10% withholding rules.",
+            "source_refs": [
+                {
+                    "title": "Circular 111/2013/TT-BTC",
+                    "ref": "turn0search24"
+                }
+            ]
+        }
+    ],
+    "tax_tables": [
+        {
+            "table_id": "VN_RESIDENT_EMPLOYMENT_PROGRESSIVE_MONTHLY_2026",
+            "scope": "resident_employment_income",
+            "basis": "month",
+            "currency": "VND",
+            "effective_from": "2026-01-01",
+            "effective_to": null,
+            "notes": "Progressive PIT schedule simplified to 5 brackets for salary/wage (monthly assessable income in VND).",
+            "brackets": [
+                {
+                    "min_inclusive": 0,
+                    "max_inclusive": 10000000,
+                    "rate": 0.05
+                },
+                {
+                    "min_exclusive": 10000000,
+                    "max_inclusive": 30000000,
+                    "rate": 0.10
+                },
+                {
+                    "min_exclusive": 30000000,
+                    "max_inclusive": 60000000,
+                    "rate": 0.20
+                },
+                {
+                    "min_exclusive": 60000000,
+                    "max_inclusive": 100000000,
+                    "rate": 0.30
+                },
+                {
+                    "min_exclusive": 100000000,
+                    "max_inclusive": null,
+                    "rate": 0.35
+                }
+            ],
+            "source_refs": [
+                {
+                    "title": "Vietnam Briefing (table of 5 brackets and monthly bands)",
+                    "ref": "turn0search4"
+                },
+                {
+                    "title": "Kaizen CPA (5 brackets; applied from 1 Jan 2026)",
+                    "ref": "turn0search33"
+                },
+                {
+                    "title": "Lexology (high-level confirmation of 7→5 brackets + rates 5–35%)",
+                    "ref": "turn0search29"
+                }
+            ]
+        },
+        {
+            "table_id": "VN_NONRESIDENT_EMPLOYMENT_FLAT_2026",
+            "scope": "nonresident_employment_income",
+            "basis": "month",
+            "currency": "VND",
+            "effective_from": "2013-08-15",
+            "effective_to": null,
+            "notes": "Non-resident employment income typically taxed at flat 20% (Vietnam-sourced). Keep as a separate table for clarity/versioning.",
+            "brackets": [
+                {
+                    "min_inclusive": 0,
+                    "max_inclusive": null,
+                    "rate": 0.20
+                }
+            ],
+            "source_refs": [
+                {
+                    "title": "Circular 111/2013/TT-BTC (English text available; general PIT guidance)",
+                    "ref": "turn0search13",
+                    "url": "https://www.accaglobal.com/content/dam/acca/global/PDF-students/acca/f6/examdocs/vnm-circular-111-2013-circular-on-personal-income-tax.pdf"
+                },
+                {
+                    "title": "Common professional summaries of VN PIT (resident worldwide vs non-resident Vietnam-sourced approach)",
+                    "ref": "turn0search26"
+                }
+            ]
+        }
+    ],
+    "decision_rules": [
+        {
+            "rule_id": "VN_RESIDENCY_183_DAY_TEST",
+            "effective_from": "2007-11-21",
+            "effective_to": null,
+            "inputs": [
+                {
+                    "name": "days_present_in_vn_in_tax_year",
+                    "type": "integer",
+                    "required": true
+                },
+                {
+                    "name": "days_present_in_vn_in_12_consecutive_months_from_first_entry",
+                    "type": "integer",
+                    "required": false
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "residency_status",
+                    "type": "enum",
+                    "values": [
+                        "resident",
+                        "non_resident",
+                        "unknown"
+                    ]
+                }
+            ],
+            "logic": "IF days_present_in_vn_in_tax_year >= 183 OR days_present_in_vn_in_12_consecutive_months_from_first_entry >= 183 THEN resident ELSE non_resident",
+            "notes": "This is the minimal residency test your UI can implement first; add permanent residence / 183-day lease logic as a v2 rule once you pin exact legal text + evidence requirements.",
+            "source_refs": [
+                {
+                    "title": "Professional summaries (resident worldwide vs non-resident VN-sourced) referencing residency criteria",
+                    "ref": "turn0search26"
+                }
+            ]
+        },
+        {
+            "rule_id": "WITHHOLDING_10_PERCENT_NO_CONTRACT_OR_LT_3_MONTHS_PAYMENT_GE_2M",
+            "effective_from": "2013-08-15",
+            "effective_to": null,
+            "inputs": [
+                {
+                    "name": "has_labor_contract",
+                    "type": "boolean",
+                    "required": true
+                },
+                {
+                    "name": "labor_contract_duration_months",
+                    "type": "number",
+                    "required": false
+                },
+                {
+                    "name": "payment_amount_vnd_per_time",
+                    "type": "integer",
+                    "required": true
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "withhold_pit",
+                    "type": "boolean"
+                },
+                {
+                    "name": "withholding_rate",
+                    "type": "number"
+                }
+            ],
+            "logic": "IF (has_labor_contract == false OR labor_contract_duration_months < 3) AND payment_amount_vnd_per_time >= 2000000 THEN withhold_pit=true; withholding_rate=0.10 ELSE withhold_pit=false; withholding_rate=0",
+            "notes": "In later versions, add the commitment/undertaking exception workflow (Form 08/CK-TNCN) as a guided UX path.",
+            "source_refs": [
+                {
+                    "title": "Crowe Vietnam Q&A quoting Circular 111/2013/TT-BTC Art. 25 point 1.i (10% withholding ≥2m VND/time)",
+                    "ref": "turn0search24"
+                }
+            ]
+        }
+    ],
+    "exemptions": [
+        {
+            "exemption_id": "OT_NIGHT_PREMIUM_ONLY_EXEMPT",
+            "effective_from": "2013-08-15",
+            "effective_to": null,
+            "inputs": [
+                {
+                    "name": "actual_overtime_or_night_pay",
+                    "type": "integer",
+                    "required": true
+                },
+                {
+                    "name": "normal_pay_for_same_hours",
+                    "type": "integer",
+                    "required": true
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "exempt_amount",
+                    "type": "integer"
+                }
+            ],
+            "calculation": "exempt_amount = actual_overtime_or_night_pay - normal_pay_for_same_hours",
+            "conditions": "Only the portion paid higher than normal wages for the same hours is exempt; employer should maintain supporting table of OT/night hours and pay.",
+            "source_refs": [
+                {
+                    "title": "Circular 111/2013/TT-BTC (overtime/night premium exemption method)",
+                    "ref": "turn0search13",
+                    "url": "https://www.accaglobal.com/content/dam/acca/global/PDF-students/acca/f6/examdocs/vnm-circular-111-2013-circular-on-personal-income-tax.pdf"
+                }
+            ]
+        }
+    ],
+    "glossary": [
+        {
+            "term": "Assessable income (monthly)",
+            "definition": "Income subject to PIT after removing exempt items and applying eligible deductions, used to apply the progressive tax table.",
+            "notes": "Your UI should label this clearly; users often confuse gross vs taxable vs assessable."
+        },
+        {
+            "term": "Tax resident",
+            "definition": "An individual present in Vietnam for 183 days or more within a calendar year or within 12 consecutive months from first entry, subject to worldwide income taxation.",
+            "notes": "Non-residents are only taxed on Vietnam-sourced income."
+        },
+        {
+            "term": "Family circumstance deduction",
+            "definition": "Personal deductions for the taxpayer and registered dependents that reduce assessable income before applying progressive rates.",
+            "notes": "Updated to 15.5M/6.2M VND from January 1, 2026."
+        },
+        {
+            "term": "Withholding",
+            "definition": "Tax deducted at source by the payer before payment is made to the recipient.",
+            "notes": "10% withholding applies to payments ≥2M VND to individuals without labor contract."
+        }
+    ],
+    "validation_rules": [
+        {
+            "validation_id": "DEPENDENTS_NONNEGATIVE",
+            "applies_to": "calculator_input",
+            "rule": "dependents_count >= 0"
+        },
+        {
+            "validation_id": "CURRENCY_VND_ONLY_MVP",
+            "applies_to": "calculator_input",
+            "rule": "currency == 'VND'"
+        },
+        {
+            "validation_id": "SALARY_NONNEGATIVE",
+            "applies_to": "calculator_input",
+            "rule": "gross_salary >= 0"
+        },
+        {
+            "validation_id": "DAYS_PRESENT_RANGE",
+            "applies_to": "residency_input",
+            "rule": "days_present >= 0 AND days_present <= 366"
+        }
+    ]
+}

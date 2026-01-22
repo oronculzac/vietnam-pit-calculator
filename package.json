@@ -1,0 +1,27 @@
+{
+    "name": "vietnam-pit-calculator-core",
+    "version": "0.1.0",
+    "description": "Deterministic Vietnam PIT calculator engine with versioned rules",
+    "main": "dist/engine/index.js",
+    "types": "dist/engine/index.d.ts",
+    "scripts": {
+        "build": "tsc",
+        "test": "tsx --test tests/**/*.test.ts",
+        "validate-rules": "tsx src/rules/validate.ts"
+    },
+    "keywords": [
+        "vietnam",
+        "pit",
+        "tax",
+        "calculator"
+    ],
+    "license": "MIT",
+    "dependencies": {
+        "zod": "^3.24.0"
+    },
+    "devDependencies": {
+        "typescript": "^5.7.0",
+        "tsx": "^4.19.0",
+        "@types/node": "^22.10.0"
+    }
+}
