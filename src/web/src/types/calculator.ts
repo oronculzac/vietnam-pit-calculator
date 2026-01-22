@@ -37,6 +37,8 @@ export interface BonusPayment {
     month: number;
 }
 
+export type Bonus = BonusPayment;
+
 export interface TaxableAllowance {
     /** Description of the allowance */
     description: string;
