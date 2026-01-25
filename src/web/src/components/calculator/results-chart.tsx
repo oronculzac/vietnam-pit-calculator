@@ -9,13 +9,15 @@ interface ResultsChartProps {
     netIncome: number;
     taxLiability: number;
     insurance: number;
+    viewMode: "monthly" | "annual";
 }
 
 export function ResultsChart({
     grossIncome,
     netIncome,
     taxLiability,
-    insurance
+    insurance,
+    viewMode
 }: ResultsChartProps) {
 
     const data = [
@@ -46,7 +48,7 @@ export function ResultsChart({
         <Card className="h-full border-muted/40 bg-muted/5">
             <CardHeader className="pb-2">
                 <CardTitle className="text-base font-medium text-center">Where does your money go?</CardTitle>
-                <CardDescription className="text-center text-xs">Monthly breakdown</CardDescription>
+                <CardDescription className="text-center text-xs">{viewMode === "annual" ? "Annual" : "Monthly"} breakdown</CardDescription>
             </CardHeader>
             <CardContent className="h-[250px] w-full">
                 <ResponsiveContainer width="100%" height="100%">

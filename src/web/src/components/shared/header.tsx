@@ -41,10 +41,18 @@ export function Header() {
                 {/* Logo */}
                 <Link
                     href="/"
-                    className="flex items-center gap-2 font-semibold text-lg transition-colors hover:text-primary cursor-pointer"
+                    className="flex items-center gap-3 transition-opacity hover:opacity-90 cursor-pointer"
                 >
-                    <Calculator className="h-6 w-6 text-green-500" />
-                    <span className="hidden sm:inline">VN PIT Calculator</span>
+                    <div className="relative h-10 w-10">
+                        <img
+                            src={isDark ? "/logo-symbol-dark.png" : "/logo-symbol-light.png"}
+                            alt="VietTax Pro Logo"
+                            className="object-contain h-full w-full"
+                        />
+                    </div>
+                    <span className="font-bold text-xl tracking-tight hidden sm:inline-block">
+                        VietTax Pro
+                    </span>
                 </Link>
 
                 {/* Navigation */}
@@ -56,8 +64,8 @@ export function Header() {
                                 key={href}
                                 href={href}
                                 className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-md transition-colors cursor-pointer ${isActive
-                                        ? "bg-primary/10 text-primary"
-                                        : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                                    ? "bg-primary/10 text-primary"
+                                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
                                     }`}
                             >
                                 <Icon className="h-4 w-4" />

@@ -209,4 +209,4 @@ User: "What's the tax filing deadline for 2026?"
 
 ---
 
-*Built with Next.js 15, Groq, and a lot of reading Vietnamese tax law in English.*
+*Built with Antigravity, and a lot of reading Vietnamese tax law in English.*

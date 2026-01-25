@@ -45,6 +45,8 @@ export interface PITInput {
     dependentsCount: number;
     /** Monthly insurance contributions in VND */
     insuranceContributions: number;
+    /** Monthly charitable donations in VND */
+    charityDonations?: number;
     /** Assessment date (defaults to now) */
     assessmentDate?: Date;
 }
@@ -89,7 +91,109 @@ export interface WithholdingResult {
     ruleId: string;
 }
 
-// ==================== RESIDENCY DETERMINATION ====================
+// ==================== INSURANCE & GROSS-TO-NET ====================
+
+/**
+ * Vietnam salary zones (affects insurance caps)
+ * Zone 1: HCMC, Hanoi urban districts
+ * Zone 2: Suburban areas of major cities
+ * Zone 3: Provincial cities
+ * Zone 4: Rural areas
+ */
+export type SalaryZone = 1 | 2 | 3 | 4;
+
+/** 2026 minimum wages by zone (VND/month) */
+export const MINIMUM_WAGES_2026: Record<SalaryZone, number> = {
+    1: 4960000,  // Zone 1: Highest
+    2: 4410000,  // Zone 2
+    3: 3860000,  // Zone 3
+    4: 3450000,  // Zone 4: Lowest
+};
+
+/** Basic wage for SI/HI caps (20x this amount) */
+export const BASIC_WAGE_2026 = 2340000;
+
+/** Insurance rates for employees */
+export const INSURANCE_RATES = {
+    employee: {
+        socialInsurance: 0.08,   // 8% SI
+        healthInsurance: 0.015, // 1.5% HI
+        unemployment: 0.01,      // 1% UI
+    },
+    employer: {
+        socialInsurance: 0.175,  // 17.5% SI
+        healthInsurance: 0.03,   // 3% HI
+        unemployment: 0.01,      // 1% UI
+        tradeUnion: 0.02,        // 2% Trade Union
+    },
+};
+
+export interface InsuranceInput {
+    /** Monthly gross salary in VND */
+    grossSalary: number;
+    /** Salary zone (1-4) */
+    zone: SalaryZone;
+    /** Is the employee an expat? (affects UI eligibility) */
+    isExpat?: boolean;
+}
+
+export interface InsuranceResult {
+    /** Employee contributions */
+    employee: {
+        socialInsurance: number;
+        healthInsurance: number;
+        unemployment: number;
+        total: number;
+    };
+    /** Employer contributions */
+    employer: {
+        socialInsurance: number;
+        healthInsurance: number;
+        unemployment: number;
+        tradeUnion: number;
+        total: number;
+    };
+    /** Total employer cost (gross + employer contributions) */
+    totalEmployerCost: number;
+    /** Base salary used for calculations (may be capped) */
+    baseForSI: number;
+    baseForHI: number;
+    baseForUI: number;
+    /** Explanations of any caps applied */
+    notes: string[];
+}
+
+export interface GrossToNetInput {
+    /** Monthly gross salary in VND */
+    grossSalary: number;
+    /** Residency status */
+    residencyStatus: 'resident' | 'non_resident';
+    /** Number of dependents (for residents) */
+    dependentsCount: number;
+    /** Salary zone for insurance */
+    zone: SalaryZone;
+    /** Is the employee an expat? */
+    isExpat?: boolean;
+    /** Use fixed 10% tax rate instead of progressive? */
+    useFixed10Percent?: boolean;
+}
+
+export interface GrossToNetResult {
+    /** Original gross salary */
+    gross: number;
+    /** Total employee insurance contributions */
+    insurance: InsuranceResult['employee'];
+    /** PIT amount */
+    pit: number;
+    /** Take-home pay */
+    net: number;
+    /** Effective tax rate (PIT / Gross) */
+    effectiveRate: number;
+    /** Step-by-step breakdown */
+    breakdown: BreakdownStep[];
+    /** Employer total cost */
+    employerCost: number;
+}
 
 /**
  * Determine tax residency status
@@ -225,7 +329,11 @@ export function calculateResidentPIT(input: PITInput): PITResult {
 
     // Calculate deductions
     const totalDependentDeduction = input.dependentsCount * dependentDeduction;
-    const totalDeductions = taxpayerDeduction + totalDependentDeduction + input.insuranceContributions;
+    const baseDeductions = taxpayerDeduction + totalDependentDeduction + input.insuranceContributions;
+    const donationInput = Math.max(0, input.charityDonations ?? 0);
+    const donationCap = Math.max(0, grossIncome - baseDeductions);
+    const charityDeduction = Math.min(donationInput, donationCap);
+    const totalDeductions = baseDeductions + charityDeduction;
 
     // Calculate assessable income (cannot be negative)
     const assessableIncome = Math.max(0, grossIncome - totalDeductions);
@@ -268,6 +376,16 @@ export function calculateResidentPIT(input: PITInput): PITResult {
         });
     }
 
+    if (charityDeduction > 0) {
+        breakdown.push({
+            label: 'Less: Charitable Donations',
+            amount: -charityDeduction,
+            isDeduction: true,
+            formula: `${formatVND(charityDeduction)} (capped at assessable income)`,
+            ruleId: 'CHARITABLE_DONATION_DEDUCTION',
+        });
+    }
+
     breakdown.push({ label: 'Assessable Income', amount: assessableIncome });
 
     // Progressive tax calculation
@@ -287,10 +405,12 @@ export function calculateResidentPIT(input: PITInput): PITResult {
             'All allowances are taxable unless specified exempt',
             'Insurance contributions are mandatory social insurance',
             'Dependents are properly registered with tax authority',
+            ...(charityDeduction > 0 ? ['Charitable donations are made to eligible organizations with proper receipts'] : []),
         ],
         rulesUsed: [
             { ruleId: 'FAMILY_DEDUCTION_TAXPAYER_MONTHLY', citation: taxpayerMeta?.source_refs[0]?.title ?? 'Resolution 110/2025' },
             { ruleId: taxTable.table_id, citation: taxTable.source_refs[0]?.title ?? 'Vietnam Briefing' },
+            ...(charityDeduction > 0 ? [{ ruleId: 'CHARITABLE_DONATION_DEDUCTION', citation: 'Circular 111/2013/TT-BTC (charitable deductions)' }] : []),
         ],
     };
 }
@@ -430,3 +550,193 @@ function formatVND(amount: number): string {
         maximumFractionDigits: 0,
     }).format(amount);
 }
+
+// ==================== INSURANCE CALCULATION ====================
+
+/**
+ * Calculate insurance contributions for employee and employer
+ */
+export function calculateInsurance(input: InsuranceInput): InsuranceResult {
+    const notes: string[] = [];
+
+    // Cap calculations
+    // SI/HI cap: 20x basic wage
+    const siHiCap = BASIC_WAGE_2026 * 20;
+    // UI cap: 20x minimum wage for zone
+    const uiCap = MINIMUM_WAGES_2026[input.zone] * 20;
+
+    // Base salaries (capped)
+    const baseForSI = Math.min(input.grossSalary, siHiCap);
+    const baseForHI = Math.min(input.grossSalary, siHiCap);
+    const baseForUI = Math.min(input.grossSalary, uiCap);
+
+    if (input.grossSalary > siHiCap) {
+        notes.push(`SI/HI capped at ${formatVND(siHiCap)} (20x basic wage)`);
+    }
+    if (input.grossSalary > uiCap) {
+        notes.push(`UI capped at ${formatVND(uiCap)} (20x zone ${input.zone} minimum wage)`);
+    }
+
+    // Employee contributions
+    const empSI = baseForSI * INSURANCE_RATES.employee.socialInsurance;
+    const empHI = baseForHI * INSURANCE_RATES.employee.healthInsurance;
+    // Expats are exempt from UI
+    const empUI = input.isExpat ? 0 : baseForUI * INSURANCE_RATES.employee.unemployment;
+
+    if (input.isExpat) {
+        notes.push('Expat: exempt from unemployment insurance');
+    }
+
+    const employeeTotal = empSI + empHI + empUI;
+
+    // Employer contributions
+    const erSI = baseForSI * INSURANCE_RATES.employer.socialInsurance;
+    const erHI = baseForHI * INSURANCE_RATES.employer.healthInsurance;
+    const erUI = input.isExpat ? 0 : baseForUI * INSURANCE_RATES.employer.unemployment;
+    const erTU = baseForSI * INSURANCE_RATES.employer.tradeUnion;
+
+    const employerTotal = erSI + erHI + erUI + erTU;
+
+    return {
+        employee: {
+            socialInsurance: empSI,
+            healthInsurance: empHI,
+            unemployment: empUI,
+            total: employeeTotal,
+        },
+        employer: {
+            socialInsurance: erSI,
+            healthInsurance: erHI,
+            unemployment: erUI,
+            tradeUnion: erTU,
+            total: employerTotal,
+        },
+        totalEmployerCost: input.grossSalary + employerTotal,
+        baseForSI,
+        baseForHI,
+        baseForUI,
+        notes,
+    };
+}
+
+// ==================== GROSS TO NET ====================
+
+/**
+ * Convert gross salary to net (take-home pay)
+ * This is the main Gross→Net conversion that competitors have
+ */
+export function grossToNet(input: GrossToNetInput): GrossToNetResult {
+    const breakdown: BreakdownStep[] = [];
+
+    // Step 1: Calculate insurance
+    const insurance = calculateInsurance({
+        grossSalary: input.grossSalary,
+        zone: input.zone,
+        isExpat: input.isExpat,
+    });
+
+    breakdown.push({ label: 'Gross Salary', amount: input.grossSalary });
+    breakdown.push({
+        label: 'Less: Social Insurance (8%)',
+        amount: -insurance.employee.socialInsurance,
+        isDeduction: true
+    });
+    breakdown.push({
+        label: 'Less: Health Insurance (1.5%)',
+        amount: -insurance.employee.healthInsurance,
+        isDeduction: true
+    });
+    if (!input.isExpat) {
+        breakdown.push({
+            label: 'Less: Unemployment Insurance (1%)',
+            amount: -insurance.employee.unemployment,
+            isDeduction: true
+        });
+    }
+
+    const salaryBeforeTax = input.grossSalary - insurance.employee.total;
+    breakdown.push({ label: 'Salary Before Tax', amount: salaryBeforeTax });
+
+    // Step 2: Calculate PIT
+    let pit: number;
+
+    if (input.useFixed10Percent) {
+        // Fixed 10% rate (for short-term/no contract)
+        pit = input.grossSalary * 0.10;
+        breakdown.push({
+            label: 'PIT @ 10% (Fixed Rate)',
+            amount: pit,
+            formula: `${formatVND(input.grossSalary)} × 10%`,
+        });
+    } else {
+        // Use standard PIT calculation
+        const pitResult = calculatePIT({
+            residencyStatus: input.residencyStatus,
+            grossSalary: input.grossSalary,
+            taxableAllowances: 0,
+            dependentsCount: input.dependentsCount,
+            insuranceContributions: insurance.employee.total,
+        });
+        pit = pitResult.monthlyPIT;
+        breakdown.push({
+            label: `PIT (${input.residencyStatus === 'resident' ? 'Progressive' : 'Flat 20%'})`,
+            amount: pit,
+        });
+    }
+
+    // Step 3: Calculate net
+    const net = input.grossSalary - insurance.employee.total - pit;
+    breakdown.push({ label: 'Net Salary (Take-home)', amount: net });
+
+    return {
+        gross: input.grossSalary,
+        insurance: insurance.employee,
+        pit,
+        net,
+        effectiveRate: pit / input.grossSalary,
+        breakdown,
+        employerCost: insurance.totalEmployerCost,
+    };
+}
+
+/**
+ * Convert net salary to gross
+ * Uses binary search to find the gross that produces the target net
+ */
+export function netToGross(input: Omit<GrossToNetInput, 'grossSalary'> & { netSalary: number }): GrossToNetResult & { iterations: number } {
+    const target = input.netSalary;
+    let low = target;
+    let high = target * 2; // Net is at most ~50% of gross for high earners
+    let iterations = 0;
+    const maxIterations = 50;
+    const tolerance = 1000; // 1,000 VND tolerance
+
+    while (iterations < maxIterations) {
+        iterations++;
+        const mid = Math.floor((low + high) / 2);
+
+        const result = grossToNet({
+            ...input,
+            grossSalary: mid,
+        });
+
+        if (Math.abs(result.net - target) < tolerance) {
+            return { ...result, iterations };
+        }
+
+        if (result.net < target) {
+            low = mid;
+        } else {
+            high = mid;
+        }
+    }
+
+    // Return best estimate after max iterations
+    const finalResult = grossToNet({
+        ...input,
+        grossSalary: Math.floor((low + high) / 2),
+    });
+
+    return { ...finalResult, iterations };
+}
+

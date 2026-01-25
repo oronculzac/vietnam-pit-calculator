@@ -272,6 +272,38 @@
                     "ref": "turn0search24"
                 }
             ]
+        },
+        {
+            "rule_id": "CHARITABLE_DONATION_DEDUCTION",
+            "effective_from": "2013-08-15",
+            "effective_to": null,
+            "inputs": [
+                {
+                    "name": "charitable_donations_vnd",
+                    "type": "integer",
+                    "required": true
+                },
+                {
+                    "name": "assessable_income_before_donations_vnd",
+                    "type": "integer",
+                    "required": true
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "charitable_donation_deduction_vnd",
+                    "type": "integer"
+                }
+            ],
+            "logic": "charitable_donation_deduction_vnd = min(charitable_donations_vnd, assessable_income_before_donations_vnd)",
+            "notes": "Deduction applies to documented charitable/humanitarian donations to eligible organizations; capped at assessable income.",
+            "source_refs": [
+                {
+                    "title": "Circular 111/2013/TT-BTC (charitable donation deductions)",
+                    "ref": "turn0search13",
+                    "url": "https://www.accaglobal.com/content/dam/acca/global/PDF-students/acca/f6/examdocs/vnm-circular-111-2013-circular-on-personal-income-tax.pdf"
+                }
+            ]
         }
     ],
     "exemptions": [

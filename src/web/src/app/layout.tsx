@@ -17,9 +17,9 @@ const firaSans = Fira_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Vietnam PIT Calculator | Estimate Personal Income Tax 2026",
-  description: "Calculate Vietnam Personal Income Tax for expats with audit-friendly breakdowns and legal citations. Based on 2026 rules.",
-  keywords: ["Vietnam tax", "PIT", "personal income tax", "expat tax", "Vietnam 2026"],
+  title: "VietTax Pro | Vietnam PIT Calculator 2026",
+  description: "VietTax Pro: Calculate Vietnam Personal Income Tax for expats with audit-friendly breakdowns and legal citations. Based on 2026 rules.",
+  keywords: ["Vietnam tax", "PIT", "personal income tax", "expat tax", "Vietnam 2026", "VietTax Pro"],
 };
 
 export default function RootLayout({
@@ -28,9 +28,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className="dark" suppressHydrationWarning>
       <body
         className={`${firaCode.variable} ${firaSans.variable} font-sans antialiased min-h-screen flex flex-col bg-background text-foreground`}
+        suppressHydrationWarning
       >
         <Header />
         <main className="flex-1">

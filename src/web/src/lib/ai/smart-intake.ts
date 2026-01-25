@@ -116,6 +116,7 @@ export function intakeToResidencyInput(intake: ResidencyIntake): ResidencyInput 
     return {
         firstEntryDate: intake.first_entry_date ?? new Date().toISOString().split('T')[0],
         daysPresent: intake.days_in_vietnam_tax_year,
+        daysIn12ConsecutiveMonths: intake.days_in_12_consecutive_months,
         hasPermanentResidence: intake.has_permanent_residence,
         hasRentalContract183Days: intake.has_rental_contract_183_days,
     };

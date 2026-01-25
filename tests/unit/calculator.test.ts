@@ -161,6 +161,24 @@ describe('Resident PIT Calculation', () => {
         // Total = 750,000 VND
         assert.strictEqual(result.monthlyPIT, 750_000);
     });
+
+    it('should include charitable donations as deduction', () => {
+        const result = calculateResidentPIT({
+            residencyStatus: 'resident',
+            grossSalary: 60_000_000,
+            taxableAllowances: 0,
+            dependentsCount: 0,
+            insuranceContributions: 0,
+            charityDonations: 2_000_000,
+        });
+
+        // Assessable = 60M - 15.5M - 2M = 42.5M
+        // Bracket 1: 10M × 5% = 500,000
+        // Bracket 2: 20M × 10% = 2,000,000
+        // Bracket 3: 12.5M × 20% = 2,500,000
+        // Total = 5,000,000 VND
+        assert.strictEqual(result.monthlyPIT, 5_000_000);
+    });
 });
 
 // ==================== NON-RESIDENT PIT TESTS ====================

@@ -8,6 +8,8 @@ export interface ResidencyInput {
     firstEntryDate: string;
     /** Total days present in Vietnam within the tax year */
     daysPresent: number;
+    /** Days present in any 12 consecutive months from first entry */
+    daysIn12ConsecutiveMonths?: number;
     /** Has registered permanent residence in Vietnam */
     hasPermanentResidence?: boolean;
     /** Has rental contract >= 183 days */

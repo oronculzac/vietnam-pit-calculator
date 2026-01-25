@@ -11,7 +11,9 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { RULE_SOURCES } from "@/lib/constants";
 import type { ResidencyResult } from "@/types/calculator";
+import { determineResidency as determineResidencyEngine } from "../../../../engine/calculator";
 
 type Step = "presence" | "housing" | "result";
 
@@ -22,6 +24,7 @@ export default function ResidencyPage() {
     // Form state
     const [firstEntryDate, setFirstEntryDate] = useState("");
     const [daysPresent, setDaysPresent] = useState<number>(0);
+    const [daysIn12ConsecutiveMonths, setDaysIn12ConsecutiveMonths] = useState<number | undefined>(undefined);
     const [hasPermanentResidence, setHasPermanentResidence] = useState<boolean | undefined>(undefined);
     const [hasRentalContract, setHasRentalContract] = useState<boolean | undefined>(undefined);
 
@@ -37,48 +40,23 @@ export default function ResidencyPage() {
     const currentStepIndex = steps.findIndex((s) => s.key === step);
     const progress = ((currentStepIndex + 1) / steps.length) * 100;
 
-    // Mock residency determination
     const determineResidency = (): ResidencyResult => {
-        const factors: string[] = [];
-        const whatWouldChange: string[] = [];
+        const engineResult = determineResidencyEngine({
+            daysInTaxYear: daysPresent,
+            daysIn12ConsecutiveMonths,
+            hasPermanentResidence: hasPermanentResidence ?? false,
+            hasRentalContract183Days: hasRentalContract ?? false,
+        });
 
-        // 183-day test
-        if (daysPresent >= 183) {
-            factors.push(`Present in Vietnam for ${daysPresent} days (≥183 threshold)`);
-        } else {
-            factors.push(`Only ${daysPresent} days present in Vietnam`);
-            whatWouldChange.push(`Staying ${183 - daysPresent} more days would trigger residency`);
-        }
+        const status = engineResult.status === "unknown" ? "uncertain" : engineResult.status;
 
-        // Housing indicators
-        if (hasPermanentResidence === true) {
-            factors.push("Has registered permanent residence");
-        }
-        if (hasRentalContract === true) {
-            factors.push("Has rental contract ≥183 days");
-        }
-
-        // Determine status
-        let status: ResidencyResult["status"];
-        let confidence: ResidencyResult["confidence"];
-
-        if (daysPresent >= 183) {
-            status = "resident";
-            confidence = "high";
-        } else if (hasPermanentResidence || hasRentalContract) {
-            status = "resident";
-            confidence = "medium";
-            factors.push("Housing indicator suggests residency despite <183 days");
-        } else if (daysPresent >= 150) {
-            status = "uncertain";
-            confidence = "low";
-            whatWouldChange.push("Registering permanent residence or rental would clarify status");
-        } else {
-            status = "non_resident";
-            confidence = daysPresent < 90 ? "high" : "medium";
-        }
-
-        return { status, confidence, factors, whatWouldChange, rulesUsed: [] };
+        return {
+            status,
+            confidence: engineResult.confidence,
+            factors: engineResult.factors,
+            whatWouldChange: engineResult.whatWouldChange,
+            rulesUsed: [RULE_SOURCES.RESIDENCY_183_DAY],
+        };
     };
 
     const handleNext = () => {
@@ -198,6 +176,32 @@ export default function ResidencyPage() {
                                     <p className="text-xs text-muted-foreground mt-1">
                                         183+ days = automatic residency
                                     </p>
+                                </div>
+
+                                <div>
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <Label htmlFor="daysIn12Months">Days in 12 Consecutive Months</Label>
+                                        <Tooltip>
+                                            <TooltipTrigger>
+                                                <Info className="h-4 w-4 text-muted-foreground" />
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                                <p className="max-w-xs">Use this if your stay spans two calendar years. Leave blank if unknown.</p>
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </div>
+                                    <Input
+                                        id="daysIn12Months"
+                                        type="number"
+                                        min={0}
+                                        max={365}
+                                        value={daysIn12ConsecutiveMonths ?? ""}
+                                        onChange={(e) => {
+                                            const value = e.target.value.trim();
+                                            setDaysIn12ConsecutiveMonths(value === "" ? undefined : parseInt(value));
+                                        }}
+                                        placeholder="e.g., 190"
+                                    />
                                 </div>
                             </div>
                         )}

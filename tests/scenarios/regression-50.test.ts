@@ -262,15 +262,14 @@ describe('Deductions (D-021 to D-030)', () => {
     });
 
     it('D-026: donations 2m reduces assessable to 42.5m -> PIT 5.0m', () => {
-        // Note: Current calculator doesn't support donations directly
-        // We'd need to add this feature, for now we test with insurance equivalent
         // 60m - 15.5m - 2m = 42.5m
         const result = calculateResidentPIT({
             residencyStatus: 'resident',
             grossSalary: 60_000_000,
             taxableAllowances: 0,
             dependentsCount: 0,
-            insuranceContributions: 2_000_000, // Using insurance as proxy for deduction
+            insuranceContributions: 0,
+            charityDonations: 2_000_000,
         });
         assert.strictEqual(result.monthlyPIT, 5_000_000);
     });

@@ -13,16 +13,22 @@ import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
-import { VN_PIT_2026, formatVND, formatPercent, RULE_SOURCES } from "@/lib/constants";
-import type { PITInput, PITResult, BreakdownStep, Bonus, TaxableAllowance } from "@/types/calculator";
+import { formatVND, formatPercent, RULE_SOURCES } from "@/lib/constants";
+import type { PITResult, Bonus, TaxableAllowance } from "@/types/calculator";
 import { AnimatedWizardWrapper } from "@/components/shared/animated-wizard";
 import { ResultsChart } from "@/components/calculator/results-chart";
+import { calculatePIT as calculatePITEngine, grossToNet as grossToNetEngine, netToGross as netToGrossEngine, type SalaryZone } from "../../../../engine/calculator";
+import { getConstant } from "../../../../rules/ruleset-loader";
+import { formatCurrency, vndToUsd, USD_VND_RATE, type Currency } from "@/lib/currency";
 
 type Step = "profile" | "income" | "deductions" | "results";
 
 function CalculatorContent() {
     const searchParams = useSearchParams();
     const [step, setStep] = useState<Step>("profile");
+
+    // View Mode
+    const [viewMode, setViewMode] = useState<"monthly" | "annual">("monthly");
 
     // Form state
     const [taxYear, setTaxYear] = useState("2026");
@@ -34,8 +40,32 @@ function CalculatorContent() {
     const [insuranceContributions, setInsuranceContributions] = useState<number>(0);
     const [charityDonations, setCharityDonations] = useState<number>(0);
 
+    // Gross-to-Net state
+    const [calculationMode, setCalculationMode] = useState<"pit" | "gross_to_net" | "net_to_gross">("pit");
+    const [salaryZone, setSalaryZone] = useState<1 | 2 | 3 | 4>(1);
+    const [isExpat, setIsExpat] = useState(true); // Default to expat for target audience
+    const [targetNetSalary, setTargetNetSalary] = useState<number>(0);
+
+    // Currency display
+    const [displayCurrency, setDisplayCurrency] = useState<"VND" | "USD">("VND");
+
     // Result state
     const [result, setResult] = useState<PITResult | null>(null);
+    const [grossNetContext, setGrossNetContext] = useState<{ gross: number; net: number; insurance: number } | null>(null);
+
+    const assessmentDate = new Date(`${taxYear}-01-01T00:00:00Z`);
+    const taxpayerDeduction = getConstant("FAMILY_DEDUCTION_TAXPAYER_MONTHLY", assessmentDate) ?? 15_500_000;
+    const dependentDeduction = getConstant("FAMILY_DEDUCTION_DEPENDENT_MONTHLY", assessmentDate) ?? 6_200_000;
+
+    const totalBonuses = bonuses.reduce((sum, b) => sum + b.amount, 0);
+    const totalAllowances = allowances.reduce((sum, a) => sum + a.amount, 0);
+    const monthlyBonus = totalBonuses / 12;
+    const grossSalaryForCalc = monthlySalary + monthlyBonus;
+    const monthlyIncome = grossSalaryForCalc + totalAllowances;
+
+    const rulesUsed = residencyStatus === "non_resident"
+        ? [RULE_SOURCES.NON_RESIDENT_RATE]
+        : [RULE_SOURCES.FAMILY_DEDUCTION, RULE_SOURCES.PROGRESSIVE_BRACKETS];
 
     // Pre-fill residency from URL
     useEffect(() => {
@@ -55,152 +85,97 @@ function CalculatorContent() {
     const currentStepIndex = steps.findIndex((s) => s.key === step);
     const progress = ((currentStepIndex + 1) / steps.length) * 100;
 
-    // Mock calculation
+    // Calculation function - handles all modes (PIT only, Gross→Net, Net→Gross)
     const calculatePIT = (): PITResult => {
-        const breakdown: BreakdownStep[] = [];
         const assumptions: string[] = [];
 
-        // Monthly gross
-        breakdown.push({
-            label: "Monthly Gross Salary",
-            amount: monthlySalary,
+        // Handle Gross-to-Net and Net-to-Gross modes with auto-insurance
+        if (calculationMode === "gross_to_net" || calculationMode === "net_to_gross") {
+            const salaryToUse = calculationMode === "net_to_gross" ? targetNetSalary : monthlySalary;
+            const result = calculationMode === "gross_to_net"
+                ? grossToNetEngine({
+                    grossSalary: salaryToUse,
+                    residencyStatus,
+                    dependentsCount,
+                    zone: salaryZone,
+                    isExpat,
+                })
+                : netToGrossEngine({
+                    netSalary: salaryToUse,
+                    residencyStatus,
+                    dependentsCount,
+                    zone: salaryZone,
+                    isExpat,
+                });
+
+            setGrossNetContext({
+                gross: result.gross,
+                net: result.net,
+                insurance: result.insurance.total,
+            });
+
+            assumptions.push(isExpat ? "Expat: exempt from unemployment insurance" : "Local: full insurance contributions");
+            assumptions.push(`Zone ${salaryZone} minimum wage applied for UI cap`);
+            if (calculationMode === "net_to_gross") {
+                assumptions.push("Gross salary calculated from target net via binary search");
+            }
+
+            return {
+                monthlyPIT: result.pit,
+                annualizedPIT: result.pit * 12,
+                effectiveRate: result.effectiveRate,
+                breakdown: result.breakdown,
+                assumptions,
+                rulesUsed,
+            };
+        }
+
+        const pitResult = calculatePITEngine({
+            residencyStatus,
+            grossSalary: grossSalaryForCalc,
+            taxableAllowances: totalAllowances,
+            dependentsCount,
+            insuranceContributions,
+            charityDonations,
+            assessmentDate,
         });
 
-        // Bonuses (annualized then monthly average)
-        const totalBonuses = bonuses.reduce((sum, b) => sum + b.amount, 0);
+        const breakdown = pitResult.breakdown.map(step => {
+            if (step.label === "Gross Salary" && totalBonuses > 0) {
+                return { ...step, label: "Gross Salary (incl. annualized bonuses)" };
+            }
+            return step;
+        });
+
+        const pitAssumptions = [...pitResult.assumptions];
         if (totalBonuses > 0) {
-            breakdown.push({
-                label: "Bonuses (annualized)",
-                amount: totalBonuses,
-            });
+            pitAssumptions.push("Bonuses are spread evenly across months");
         }
-
-        // Allowances
-        const totalAllowances = allowances.reduce((sum, a) => sum + a.amount, 0);
-        if (totalAllowances > 0) {
-            breakdown.push({
-                label: "Taxable Allowances",
-                amount: totalAllowances,
-            });
-            assumptions.push("All listed allowances treated as taxable");
+        if (totalAllowances > 0 && !pitAssumptions.some((assumption) => assumption.includes("allowances"))) {
+            pitAssumptions.push("All listed allowances treated as taxable");
         }
-
-        // Total monthly income
-        const monthlyIncome = monthlySalary + totalAllowances + (totalBonuses / 12);
-        breakdown.push({
-            label: "Total Monthly Income",
-            amount: monthlyIncome,
+        setGrossNetContext({
+            gross: monthlyIncome,
+            net: monthlyIncome - pitResult.monthlyPIT - insuranceContributions,
+            insurance: insuranceContributions,
         });
-
-        let monthlyPIT: number;
-        let effectiveRate: number;
-
-        if (residencyStatus === "non_resident") {
-            // Non-resident: flat 20%
-            monthlyPIT = monthlyIncome * VN_PIT_2026.nonResidentRate;
-            effectiveRate = VN_PIT_2026.nonResidentRate;
-
-            breakdown.push({
-                label: "Non-resident Tax (20%)",
-                amount: monthlyPIT,
-                formula: `${formatVND(monthlyIncome)} × 20%`,
-                ruleId: "NON_RESIDENT_RATE",
-            });
-
-            assumptions.push("Non-resident: no deductions allowed");
-        } else {
-            // Resident: progressive calculation
-
-            // Insurance deduction
-            const insuranceDeduction = insuranceContributions;
-            if (insuranceDeduction > 0) {
-                breakdown.push({
-                    label: "Less: Insurance Contributions",
-                    amount: -insuranceDeduction,
-                    isDeduction: true,
-                });
-            }
-
-            // Taxpayer deduction
-            breakdown.push({
-                label: "Less: Taxpayer Deduction",
-                amount: -VN_PIT_2026.taxpayerDeduction,
-                formula: formatVND(VN_PIT_2026.taxpayerDeduction),
-                ruleId: "FAMILY_DEDUCTION",
-                isDeduction: true,
-            });
-
-            // Dependent deductions
-            const dependentDeduction = dependentsCount * VN_PIT_2026.dependentDeduction;
-            if (dependentDeduction > 0) {
-                breakdown.push({
-                    label: `Less: Dependent Deductions (${dependentsCount})`,
-                    amount: -dependentDeduction,
-                    formula: `${formatVND(VN_PIT_2026.dependentDeduction)} × ${dependentsCount}`,
-                    ruleId: "FAMILY_DEDUCTION",
-                    isDeduction: true,
-                });
-            }
-
-            // Charity
-            if (charityDonations > 0) {
-                breakdown.push({
-                    label: "Less: Charity Donations",
-                    amount: -charityDonations,
-                    isDeduction: true,
-                });
-            }
-
-            // Assessable income
-            const totalDeductions = insuranceDeduction + VN_PIT_2026.taxpayerDeduction + dependentDeduction + charityDonations;
-            const assessableIncome = Math.max(0, monthlyIncome - totalDeductions);
-
-            breakdown.push({
-                label: "Assessable Income",
-                amount: assessableIncome,
-                formula: `${formatVND(monthlyIncome)} - ${formatVND(totalDeductions)}`,
-            });
-
-            // Progressive tax calculation
-            let tax = 0;
-            let remaining = assessableIncome;
-
-            for (const bracket of VN_PIT_2026.brackets) {
-                if (remaining <= 0) break;
-
-                const bracketSize = bracket.max === Infinity ? remaining : Math.min(remaining, bracket.max - bracket.min);
-                const bracketTax = bracketSize * bracket.rate;
-                tax += bracketTax;
-                remaining -= bracketSize;
-
-                if (bracketTax > 0) {
-                    breakdown.push({
-                        label: `Bracket ${formatPercent(bracket.rate)} (${formatVND(bracket.min)} - ${bracket.max === Infinity ? "∞" : formatVND(bracket.max)})`,
-                        amount: bracketTax,
-                        formula: `${formatVND(bracketSize)} × ${formatPercent(bracket.rate)}`,
-                        ruleId: "PROGRESSIVE_BRACKETS",
-                    });
-                }
-            }
-
-            monthlyPIT = tax;
-            effectiveRate = monthlyIncome > 0 ? tax / monthlyIncome : 0;
-
-            breakdown.push({
-                label: "Monthly PIT",
-                amount: monthlyPIT,
-            });
-        }
-
-        const annualizedPIT = monthlyPIT * 12 + (residencyStatus === "resident" ? 0 : totalBonuses * 0.2);
 
         return {
-            monthlyPIT,
-            annualizedPIT,
-            effectiveRate,
+            monthlyPIT: pitResult.monthlyPIT,
+            annualizedPIT: pitResult.annualizedPIT,
+            effectiveRate: pitResult.effectiveRate,
             breakdown,
-            assumptions,
-            rulesUsed: Object.values(RULE_SOURCES).slice(0, 3),
+            assumptions: pitAssumptions,
+            rulesUsed: pitResult.rulesUsed.map(r => {
+                const found = Object.values(RULE_SOURCES).find(source => source.ruleId === r.ruleId);
+                return found || {
+                    ruleId: r.ruleId,
+                    ruleName: r.ruleId,
+                    effectiveDate: "2026-01-01",
+                    sourceUrl: "",
+                    sourceTitle: r.citation
+                };
+            }),
         };
     };
 
@@ -236,6 +211,12 @@ function CalculatorContent() {
     const addAllowance = () => setAllowances([...allowances, { description: "", amount: 0 }]);
     const removeAllowance = (index: number) => setAllowances(allowances.filter((_, i) => i !== index));
 
+    const chartGrossIncome = calculationMode === "pit" ? monthlyIncome : grossNetContext?.gross ?? 0;
+    const chartNetIncome = calculationMode === "pit"
+        ? monthlyIncome - (result?.monthlyPIT ?? 0) - insuranceContributions
+        : grossNetContext?.net ?? 0;
+    const chartInsurance = calculationMode === "pit" ? insuranceContributions : grossNetContext?.insurance ?? 0;
+
     return (
         <TooltipProvider>
             <div className="container mx-auto max-w-3xl px-4 py-12">
@@ -243,6 +224,13 @@ function CalculatorContent() {
                     <h1 className="text-3xl font-bold mb-2">PIT Calculator</h1>
                     <p className="text-muted-foreground">
                         Calculate your Vietnam Personal Income Tax for {taxYear}
+                        {result && (
+                            <span className="block mt-2 text-sm">
+                                <span className={viewMode === "monthly" ? "text-foreground font-medium" : "text-muted-foreground"}>Monthly</span>
+                                <span className="mx-2">/</span>
+                                <span className={viewMode === "annual" ? "text-foreground font-medium" : "text-muted-foreground"}>Annual</span>
+                            </span>
+                        )}
                     </p>
                 </div>
 
@@ -264,6 +252,35 @@ function CalculatorContent() {
                             {/* Step 1: Profile */}
                             {step === "profile" && (
                                 <div className="space-y-6">
+                                    {/* Calculation Mode */}
+                                    <div>
+                                        <Label className="mb-2 block">Calculation Mode</Label>
+                                        <RadioGroup
+                                            value={calculationMode}
+                                            onValueChange={(v: "pit" | "gross_to_net" | "net_to_gross") => setCalculationMode(v)}
+                                            className="grid grid-cols-3 gap-2"
+                                        >
+                                            <div className={`flex items-center justify-center p-3 border rounded-lg cursor-pointer hover:bg-muted/50 ${calculationMode === "pit" ? "border-green-500 bg-green-500/10" : ""}`}>
+                                                <RadioGroupItem value="pit" id="mode_pit" className="sr-only" />
+                                                <Label htmlFor="mode_pit" className="cursor-pointer text-center">
+                                                    <span className="font-medium text-sm">PIT Only</span>
+                                                </Label>
+                                            </div>
+                                            <div className={`flex items-center justify-center p-3 border rounded-lg cursor-pointer hover:bg-muted/50 ${calculationMode === "gross_to_net" ? "border-green-500 bg-green-500/10" : ""}`}>
+                                                <RadioGroupItem value="gross_to_net" id="mode_gtn" className="sr-only" />
+                                                <Label htmlFor="mode_gtn" className="cursor-pointer text-center">
+                                                    <span className="font-medium text-sm">Gross→Net</span>
+                                                </Label>
+                                            </div>
+                                            <div className={`flex items-center justify-center p-3 border rounded-lg cursor-pointer hover:bg-muted/50 ${calculationMode === "net_to_gross" ? "border-green-500 bg-green-500/10" : ""}`}>
+                                                <RadioGroupItem value="net_to_gross" id="mode_ntg" className="sr-only" />
+                                                <Label htmlFor="mode_ntg" className="cursor-pointer text-center">
+                                                    <span className="font-medium text-sm">Net→Gross</span>
+                                                </Label>
+                                            </div>
+                                        </RadioGroup>
+                                    </div>
+
                                     <div>
                                         <Label className="mb-2 block">Tax Year</Label>
                                         <Select value={taxYear} onValueChange={setTaxYear}>
@@ -272,8 +289,6 @@ function CalculatorContent() {
                                             </SelectTrigger>
                                             <SelectContent>
                                                 <SelectItem value="2026">2026</SelectItem>
-                                                <SelectItem value="2025">2025</SelectItem>
-                                                <SelectItem value="2024">2024</SelectItem>
                                             </SelectContent>
                                         </Select>
                                     </div>
@@ -311,6 +326,87 @@ function CalculatorContent() {
                                             </div>
                                         </RadioGroup>
                                     </div>
+
+                                    {/* Zone & Expat (for Gross-to-Net modes) */}
+                                    {calculationMode !== "pit" && (
+                                        <div className="grid grid-cols-2 gap-4 p-4 bg-muted/30 rounded-lg">
+                                            <div>
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <Label>Salary Zone</Label>
+                                                    <Tooltip>
+                                                        <TooltipTrigger>
+                                                            <Info className="h-4 w-4 text-muted-foreground" />
+                                                        </TooltipTrigger>
+                                                        <TooltipContent>
+                                                            <p className="max-w-xs">Zone 1: HCMC/Hanoi urban. Zone 2-4: Lower minimum wages.</p>
+                                                        </TooltipContent>
+                                                    </Tooltip>
+                                                </div>
+                                                <Select value={String(salaryZone)} onValueChange={(v) => setSalaryZone(parseInt(v) as 1 | 2 | 3 | 4)}>
+                                                    <SelectTrigger className="cursor-pointer">
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="1">Zone 1 (HCMC/Hanoi)</SelectItem>
+                                                        <SelectItem value="2">Zone 2</SelectItem>
+                                                        <SelectItem value="3">Zone 3</SelectItem>
+                                                        <SelectItem value="4">Zone 4</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div>
+                                                <Label className="mb-2 block">Employee Type</Label>
+                                                <RadioGroup
+                                                    value={isExpat ? "expat" : "local"}
+                                                    onValueChange={(v) => setIsExpat(v === "expat")}
+                                                    className="flex gap-4"
+                                                >
+                                                    <div className="flex items-center space-x-2">
+                                                        <RadioGroupItem value="expat" id="expat" />
+                                                        <Label htmlFor="expat" className="cursor-pointer text-sm">Expat</Label>
+                                                    </div>
+                                                    <div className="flex items-center space-x-2">
+                                                        <RadioGroupItem value="local" id="local" />
+                                                        <Label htmlFor="local" className="cursor-pointer text-sm">Local</Label>
+                                                    </div>
+                                                </RadioGroup>
+                                                <p className="text-xs text-muted-foreground mt-1">
+                                                    {isExpat ? "No unemployment insurance" : "Full insurance"}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Display Currency */}
+                                    <div className="flex items-center justify-between p-3 border rounded-lg">
+                                        <div className="flex items-center gap-2">
+                                            <Label>Display Currency</Label>
+                                            <Tooltip>
+                                                <TooltipTrigger>
+                                                    <Info className="h-4 w-4 text-muted-foreground" />
+                                                </TooltipTrigger>
+                                                <TooltipContent>
+                                                    <p className="max-w-xs">Show amounts in VND or USD (rate: ₫{USD_VND_RATE.toLocaleString()}/USD)</p>
+                                                </TooltipContent>
+                                            </Tooltip>
+                                        </div>
+                                        <div className="flex gap-1 border rounded-lg p-1">
+                                            <button
+                                                type="button"
+                                                onClick={() => setDisplayCurrency("VND")}
+                                                className={`px-3 py-1 text-sm rounded transition-colors ${displayCurrency === "VND" ? "bg-green-500 text-white" : "hover:bg-muted"}`}
+                                            >
+                                                VND ₫
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setDisplayCurrency("USD")}
+                                                className={`px-3 py-1 text-sm rounded transition-colors ${displayCurrency === "USD" ? "bg-green-500 text-white" : "hover:bg-muted"}`}
+                                            >
+                                                USD $
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             )}
 
@@ -318,111 +414,137 @@ function CalculatorContent() {
                             {step === "income" && (
                                 <div className="space-y-6">
                                     <div>
-                                        <Label htmlFor="salary" className="mb-2 block">Monthly Gross Salary (VND)</Label>
+                                        <Label htmlFor="salary" className="mb-2 block">
+                                            {calculationMode === "net_to_gross" ? "Target Net Salary (VND)" : "Monthly Gross Salary (VND)"}
+                                        </Label>
                                         <Input
                                             id="salary"
                                             type="number"
                                             min={0}
-                                            value={monthlySalary || ""}
-                                            onChange={(e) => setMonthlySalary(parseInt(e.target.value) || 0)}
+                                            value={calculationMode === "net_to_gross" ? targetNetSalary || "" : monthlySalary || ""}
+                                            onChange={(e) => {
+                                                const value = parseInt(e.target.value) || 0;
+                                                if (calculationMode === "net_to_gross") {
+                                                    setTargetNetSalary(value);
+                                                } else {
+                                                    setMonthlySalary(value);
+                                                }
+                                            }}
                                             placeholder="e.g., 50000000"
                                         />
                                     </div>
 
-                                    <div>
-                                        <div className="flex items-center justify-between mb-2">
-                                            <Label>Bonuses</Label>
-                                            <Button variant="outline" size="sm" onClick={addBonus} className="gap-1 cursor-pointer">
-                                                <Plus className="h-3 w-3" />
-                                                Add
-                                            </Button>
-                                        </div>
-                                        {bonuses.length === 0 && (
-                                            <p className="text-sm text-muted-foreground">No bonuses added</p>
-                                        )}
-                                        <div className="space-y-2">
-                                            {bonuses.map((bonus, i) => (
-                                                <div key={i} className="flex gap-2 items-center">
-                                                    <Input
-                                                        type="number"
-                                                        placeholder="Amount"
-                                                        value={bonus.amount || ""}
-                                                        onChange={(e) => {
-                                                            const updated = [...bonuses];
-                                                            updated[i].amount = parseInt(e.target.value) || 0;
-                                                            setBonuses(updated);
-                                                        }}
-                                                        className="flex-1"
-                                                    />
-                                                    <Select
-                                                        value={String(bonus.month)}
-                                                        onValueChange={(v) => {
-                                                            const updated = [...bonuses];
-                                                            updated[i].month = parseInt(v);
-                                                            setBonuses(updated);
-                                                        }}
-                                                    >
-                                                        <SelectTrigger className="w-24 cursor-pointer">
-                                                            <SelectValue />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            {Array.from({ length: 12 }, (_, i) => (
-                                                                <SelectItem key={i + 1} value={String(i + 1)}>
-                                                                    {["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][i]}
-                                                                </SelectItem>
-                                                            ))}
-                                                        </SelectContent>
-                                                    </Select>
-                                                    <Button variant="ghost" size="icon" onClick={() => removeBonus(i)} className="cursor-pointer">
-                                                        <Trash2 className="h-4 w-4 text-destructive" />
+                                    {calculationMode === "pit" && (
+                                        <>
+                                            <div>
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <Label>Bonuses</Label>
+                                                    <Button variant="outline" size="sm" onClick={addBonus} className="gap-1 cursor-pointer">
+                                                        <Plus className="h-3 w-3" />
+                                                        Add
                                                     </Button>
                                                 </div>
-                                            ))}
-                                        </div>
-                                    </div>
+                                                {bonuses.length === 0 && (
+                                                    <p className="text-sm text-muted-foreground">No bonuses added</p>
+                                                )}
+                                                <div className="space-y-2">
+                                                    {bonuses.map((bonus, i) => (
+                                                        <div key={i} className="flex gap-2 items-center">
+                                                            <Input
+                                                                type="number"
+                                                                placeholder="Amount"
+                                                                value={bonus.amount || ""}
+                                                                onChange={(e) => {
+                                                                    const updated = [...bonuses];
+                                                                    updated[i].amount = parseInt(e.target.value) || 0;
+                                                                    setBonuses(updated);
+                                                                }}
+                                                                className="flex-1"
+                                                            />
+                                                            <Select
+                                                                value={String(bonus.month)}
+                                                                onValueChange={(v) => {
+                                                                    const updated = [...bonuses];
+                                                                    updated[i].month = parseInt(v);
+                                                                    setBonuses(updated);
+                                                                }}
+                                                            >
+                                                                <SelectTrigger className="w-24 cursor-pointer">
+                                                                    <SelectValue />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    {Array.from({ length: 12 }, (_, i) => (
+                                                                        <SelectItem key={i + 1} value={String(i + 1)}>
+                                                                            {[
+                                                                                "Jan",
+                                                                                "Feb",
+                                                                                "Mar",
+                                                                                "Apr",
+                                                                                "May",
+                                                                                "Jun",
+                                                                                "Jul",
+                                                                                "Aug",
+                                                                                "Sep",
+                                                                                "Oct",
+                                                                                "Nov",
+                                                                                "Dec",
+                                                                            ][i]}
+                                                                        </SelectItem>
+                                                                    ))}
+                                                                </SelectContent>
+                                                            </Select>
+                                                            <Button variant="ghost" size="icon" onClick={() => removeBonus(i)} className="cursor-pointer">
+                                                                <Trash2 className="h-4 w-4 text-destructive" />
+                                                            </Button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
 
-                                    <div>
-                                        <div className="flex items-center justify-between mb-2">
-                                            <Label>Taxable Allowances</Label>
-                                            <Button variant="outline" size="sm" onClick={addAllowance} className="gap-1 cursor-pointer">
-                                                <Plus className="h-3 w-3" />
-                                                Add
-                                            </Button>
-                                        </div>
-                                        {allowances.length === 0 && (
-                                            <p className="text-sm text-muted-foreground">No allowances added</p>
-                                        )}
-                                        <div className="space-y-2">
-                                            {allowances.map((allowance, i) => (
-                                                <div key={i} className="flex gap-2 items-center">
-                                                    <Input
-                                                        placeholder="Description"
-                                                        value={allowance.description}
-                                                        onChange={(e) => {
-                                                            const updated = [...allowances];
-                                                            updated[i].description = e.target.value;
-                                                            setAllowances(updated);
-                                                        }}
-                                                        className="flex-1"
-                                                    />
-                                                    <Input
-                                                        type="number"
-                                                        placeholder="Amount"
-                                                        value={allowance.amount || ""}
-                                                        onChange={(e) => {
-                                                            const updated = [...allowances];
-                                                            updated[i].amount = parseInt(e.target.value) || 0;
-                                                            setAllowances(updated);
-                                                        }}
-                                                        className="w-32"
-                                                    />
-                                                    <Button variant="ghost" size="icon" onClick={() => removeAllowance(i)} className="cursor-pointer">
-                                                        <Trash2 className="h-4 w-4 text-destructive" />
+                                            <div>
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <Label>Taxable Allowances</Label>
+                                                    <Button variant="outline" size="sm" onClick={addAllowance} className="gap-1 cursor-pointer">
+                                                        <Plus className="h-3 w-3" />
+                                                        Add
                                                     </Button>
                                                 </div>
-                                            ))}
-                                        </div>
-                                    </div>
+                                                {allowances.length === 0 && (
+                                                    <p className="text-sm text-muted-foreground">No allowances added</p>
+                                                )}
+                                                <div className="space-y-2">
+                                                    {allowances.map((allowance, i) => (
+                                                        <div key={i} className="flex gap-2 items-center">
+                                                            <Input
+                                                                placeholder="Description"
+                                                                value={allowance.description}
+                                                                onChange={(e) => {
+                                                                    const updated = [...allowances];
+                                                                    updated[i].description = e.target.value;
+                                                                    setAllowances(updated);
+                                                                }}
+                                                                className="flex-1"
+                                                            />
+                                                            <Input
+                                                                type="number"
+                                                                placeholder="Amount"
+                                                                value={allowance.amount || ""}
+                                                                onChange={(e) => {
+                                                                    const updated = [...allowances];
+                                                                    updated[i].amount = parseInt(e.target.value) || 0;
+                                                                    setAllowances(updated);
+                                                                }}
+                                                                className="w-32"
+                                                            />
+                                                            <Button variant="ghost" size="icon" onClick={() => removeAllowance(i)} className="cursor-pointer">
+                                                                <Trash2 className="h-4 w-4 text-destructive" />
+                                                            </Button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
                             )}
 
@@ -440,44 +562,74 @@ function CalculatorContent() {
                                             onChange={(e) => setDependentsCount(parseInt(e.target.value) || 0)}
                                         />
                                         <p className="text-xs text-muted-foreground mt-1">
-                                            Each dependent: {formatVND(VN_PIT_2026.dependentDeduction)}/month deduction
+                                            Each dependent: {formatVND(dependentDeduction)}/month deduction
                                         </p>
                                     </div>
 
-                                    <div>
-                                        <Label htmlFor="insurance" className="mb-2 block">Monthly Insurance Contributions (VND)</Label>
-                                        <Input
-                                            id="insurance"
-                                            type="number"
-                                            min={0}
-                                            value={insuranceContributions || ""}
-                                            onChange={(e) => setInsuranceContributions(parseInt(e.target.value) || 0)}
-                                        />
-                                    </div>
+                                    {calculationMode === "pit" && (
+                                        <>
+                                            <div>
+                                                <Label htmlFor="insurance" className="mb-2 block">Monthly Insurance Contributions (VND)</Label>
+                                                <Input
+                                                    id="insurance"
+                                                    type="number"
+                                                    min={0}
+                                                    value={insuranceContributions || ""}
+                                                    onChange={(e) => setInsuranceContributions(parseInt(e.target.value) || 0)}
+                                                />
+                                            </div>
 
-                                    <div>
-                                        <Label htmlFor="charity" className="mb-2 block">Monthly Charity Donations (VND) - Optional</Label>
-                                        <Input
-                                            id="charity"
-                                            type="number"
-                                            min={0}
-                                            value={charityDonations || ""}
-                                            onChange={(e) => setCharityDonations(parseInt(e.target.value) || 0)}
-                                        />
-                                    </div>
+                                            <div>
+                                                <Label htmlFor="charity" className="mb-2 block">Monthly Charity Donations (VND) - Optional</Label>
+                                                <Input
+                                                    id="charity"
+                                                    type="number"
+                                                    min={0}
+                                                    value={charityDonations || ""}
+                                                    onChange={(e) => setCharityDonations(parseInt(e.target.value) || 0)}
+                                                />
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
                             )}
 
                             {/* Step 4: Results */}
                             {step === "results" && result && (
                                 <div className="space-y-6">
+                                    {/* View Toggle */}
+                                    <div className="flex justify-center mb-4">
+                                        <div className="flex items-center space-x-2 bg-muted p-1 rounded-lg">
+                                            <Button
+                                                variant={viewMode === "monthly" ? "default" : "ghost"}
+                                                size="sm"
+                                                onClick={() => setViewMode("monthly")}
+                                                className="text-xs"
+                                            >
+                                                Monthly View
+                                            </Button>
+                                            <Button
+                                                variant={viewMode === "annual" ? "default" : "ghost"}
+                                                size="sm"
+                                                onClick={() => setViewMode("annual")}
+                                                className="text-xs"
+                                            >
+                                                Annual View
+                                            </Button>
+                                        </div>
+                                    </div>
+
                                     {/* Summary */}
                                     <div className="grid md:grid-cols-2 gap-4">
                                         <div className="text-center p-6 bg-green-500/10 rounded-lg border border-green-500/30 flex flex-col justify-center">
-                                            <p className="text-sm text-muted-foreground mb-1">Monthly PIT</p>
-                                            <p className="text-4xl font-mono font-bold text-green-500">{formatVND(result.monthlyPIT)}</p>
+                                            <p className="text-sm text-muted-foreground mb-1">{viewMode === "annual" ? "Annual" : "Monthly"} PIT</p>
+                                            <p className="text-4xl font-mono font-bold text-green-500">
+                                                {formatCurrency(viewMode === "annual" ? result.annualizedPIT : result.monthlyPIT, displayCurrency)}
+                                            </p>
                                             <p className="text-sm text-muted-foreground mt-2">
-                                                Annualized: <span className="font-medium">{formatVND(result.annualizedPIT)}</span>
+                                                {viewMode === "annual" ? "Monthly" : "Annualized"}: <span className="font-medium">
+                                                    {formatCurrency(viewMode === "annual" ? result.monthlyPIT : result.annualizedPIT, displayCurrency)}
+                                                </span>
                                                 {" · "}
                                                 Effective rate: <span className="font-medium">{formatPercent(result.effectiveRate)}</span>
                                             </p>
@@ -485,10 +637,11 @@ function CalculatorContent() {
 
                                         {/* Chart Component */}
                                         <ResultsChart
-                                            grossIncome={monthlySalary + bonuses.reduce((s, b) => s + b.amount, 0) / 12}
-                                            netIncome={monthlySalary - result.monthlyPIT - insuranceContributions}
-                                            taxLiability={result.monthlyPIT}
-                                            insurance={insuranceContributions}
+                                            grossIncome={chartGrossIncome * (viewMode === "annual" ? 12 : 1)}
+                                            netIncome={chartNetIncome * (viewMode === "annual" ? 12 : 1)}
+                                            taxLiability={result.monthlyPIT * (viewMode === "annual" ? 12 : 1)}
+                                            insurance={chartInsurance * (viewMode === "annual" ? 12 : 1)}
+                                            viewMode={viewMode}
                                         />
                                     </div>
 
@@ -518,7 +671,9 @@ function CalculatorContent() {
                                                     <div key={i} className={`flex justify-between items-center py-2 ${item.isDeduction ? "text-red-400" : ""
                                                         } ${item.label.includes("Monthly PIT") || item.label.includes("Assessable") ? "font-semibold border-t pt-3" : ""}`}>
                                                         <div className="flex items-center gap-2">
-                                                            <span className="text-sm">{item.label}</span>
+                                                            <span className="text-sm">
+                                                                {item.label.replace("Monthly", viewMode === "annual" ? "Annual" : "Monthly")}
+                                                            </span>
                                                             {item.ruleId && (
                                                                 <Tooltip>
                                                                     <TooltipTrigger>
@@ -530,7 +685,9 @@ function CalculatorContent() {
                                                                 </Tooltip>
                                                             )}
                                                         </div>
-                                                        <span className="font-mono text-sm">{formatVND(item.amount)}</span>
+                                                        <span className="font-mono text-sm">
+                                                            {formatCurrency(item.amount * (viewMode === "annual" ? 12 : 1), displayCurrency)}
+                                                        </span>
                                                     </div>
                                                 ))}
                                             </div>
