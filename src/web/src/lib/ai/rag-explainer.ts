@@ -4,9 +4,10 @@
 import { streamText, generateText } from 'ai';
 import { createGroq } from '@ai-sdk/groq';
 
-// Initialize Groq
+// Initialize Groq lazily to prevent build-time crashes if key is missing
+const apiKey = process.env.GROQ_API_KEY || 'dummy-key-for-build';
 const groq = createGroq({
-    apiKey: process.env.GROQ_API_KEY,
+    apiKey,
 });
 
 const MODEL = groq('llama-3.3-70b-versatile');
