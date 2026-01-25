@@ -24,7 +24,7 @@ export async function POST(request: Request) {
         if (stream) {
             // Return streaming response
             const result = streamExplanation({ question, calculationContext: context });
-            return result.toDataStreamResponse();
+            return result.toTextStreamResponse();
         } else {
             // Return complete response
             const answer = await generateExplanation({ question, calculationContext: context });
