@@ -1,0 +1,40 @@
+name: Legal Watchdog
+
+on:
+  schedule:
+    # Run at 07:00 UTC every Monday
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        # Assuming tsx is in devDependencies, or we npx it directly
+        run: npm ci
+
+      - name: Run Watchdog Script
+        env:
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+        run: npx tsx scripts/legal-watchdog.ts
+
+      - name: Commit and push if changes
+        run: |
+          git config --global user.name 'Legal Watchdog Bot'
+          git config --global user.email 'watchdog@users.noreply.github.com'
+          git add LEGAL_WATCH_LOG.md
+          # Only commit if there are changes
+          git diff --quiet && git diff --staged --quiet || (git commit -m "docs: update legal watchdog log [skip ci]" && git push)
